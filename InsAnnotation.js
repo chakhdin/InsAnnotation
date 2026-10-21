@@ -335,7 +335,6 @@ class CopyRightDialog extends Dialog {
                   edit.text = "";
                   CopyRightParameters.setup[f.key] = "";
                   edit.enabled = true;
-                  edit.focus();
                }
             }
             edit.onTextUpdated = function(value) {
@@ -455,6 +454,7 @@ class CopyRightDialog extends Dialog {
       this.execButton = new PushButton(this);
       this.execButton.text = "Apply";
       this.execButton.width = 40;
+      this.execButton.defaultButton = true;
       this.execButton.onClick = () => {
          this.ok();
       }

@@ -7,6 +7,9 @@
 
 #define SETTINGS_KEY_PREFIX "InsAnnotation/"
 
+// name in the default copyright "© <year> <name>"; the copyright you enter is remembered between runs, so this is only the first-run default
+#define DEFAULT_AUTHOR "Your Name"
+
 // setup detail fields, in the order they are drawn (top to bottom)
 var SETUP_FIELDS = [
    { key: "telescope", label: "Telescope" },
@@ -343,7 +346,7 @@ function insertCopyright(view, text, setup, copyrightText) {
    if (copyrightText) {
       P.annotationText = copyrightText;
    } else {
-      P.annotationText = "© " + D.getFullYear() + " Your Name";
+      P.annotationText = "© " + D.getFullYear() + " " + DEFAULT_AUTHOR;
    }
    P.annotationPositionX = margin;
    P.annotationPositionY = h * (1 - 40/720);
@@ -659,7 +662,7 @@ class CopyRightDialog extends Dialog {
       if (CopyRightParameters.copyrightText) {
          this.editBox2.text = CopyRightParameters.copyrightText;
       } else {
-         this.editBox2.text = "© " + curDate.getFullYear() + " Your Name";
+         this.editBox2.text = "© " + curDate.getFullYear() + " " + DEFAULT_AUTHOR;
       }
 
       CopyRightParameters.copyrightText = this.editBox2.text;

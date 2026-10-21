@@ -99,6 +99,154 @@ function findLocation(lat, lon) {
    return best;
 }
 
+// XISF stores the astrometric solution as view properties rather than FITS keywords
+function solvedFieldFromProperties(view) {
+   let ids = [];
+   try {
+      ids = view.properties.filter(id => /^(AstrometricSolution:(ReferenceCelestialCoordinates|LinearTransformationMatrix|ReferenceImageCoordinates)|Observation:Center)/.test(id));
+   } catch (e) {
+      Console.writeln("[lookup] cannot list view properties: " + e.message);
+   }
+   Console.writeln("[lookup] relevant properties: " + (ids.length ? ids.join(", ") : "none"));
+   if (ids.length == 0) {
+      return null;
+   }
+   let value = (id) => (ids.indexOf(id) >= 0) ? view.propertyValue(id) : undefined;
+   for (let id of ids) {
+      Console.writeln("[lookup]   " + id + " = " + view.propertyValue(id));
+   }
+
+   // centre: the observation centre if present, else the solution's reference point (the solvers put it at the image centre)
+   let ra = value("Observation:Center:RA"), dec = value("Observation:Center:Dec");
+   if (ra === undefined || dec === undefined) {
+      let c = value("AstrometricSolution:ReferenceCelestialCoordinates");
+      if (c === undefined) {
+         return null;
+      }
+      ra = c.at(0);
+      dec = c.at(1);
+   }
+
+   // scale in degrees per pixel from the linear transformation matrix (a CD matrix)
+   let scale = NaN;
+   let m = value("AstrometricSolution:LinearTransformationMatrix");
+   if (m !== undefined) {
+      scale = Math.sqrt(m.at(0, 0) * m.at(0, 0) + m.at(1, 0) * m.at(1, 0));
+   }
+   if (isNaN(scale) || scale <= 0) {
+      Console.writeln("[lookup] no usable linear transformation matrix, cannot determine the field size");
+      return null;
+   }
+   let w = view.image.width, h = view.image.height;
+   let radius = 0.5 * scale * Math.sqrt(w * w + h * h);
+   Console.writeln("[lookup] solution from properties: centre " + ra + ", " + dec + ", scale " + (scale * 3600).toFixed(3) + " arcsec/px, image " + w + "x" + h);
+   return { ra: Number(ra), dec: Number(dec), radius: radius };
+}
+
+// centre (RA, Dec in degrees) and radius (degrees) of a plate-solved view, from its WCS keywords or XISF properties; null if not solved
+function solvedField(view) {
+   let kw = view.window.keywords;
+   let num = (names) => parseFloat(headerValue(kw, names));
+   let crval1 = num(["CRVAL1"]), crval2 = num(["CRVAL2"]);
+   let crpix1 = num(["CRPIX1"]), crpix2 = num(["CRPIX2"]);
+   let cd11 = num(["CD1_1"]), cd12 = num(["CD1_2"]), cd21 = num(["CD2_1"]), cd22 = num(["CD2_2"]);
+   if (isNaN(cd11) && isNaN(cd22)) {
+      // CDELT-only solutions
+      cd11 = num(["CDELT1"]);
+      cd22 = num(["CDELT2"]);
+      cd12 = cd21 = 0;
+   }
+   let required = { CRVAL1: crval1, CRVAL2: crval2, CRPIX1: crpix1, CRPIX2: crpix2, "CD1_1/CDELT1": cd11, "CD2_2/CDELT2": cd22 };
+   let missing = Object.keys(required).filter(k => isNaN(required[k]));
+   if (missing.length > 0) {
+      Console.writeln("[lookup] " + view.fullId + ": no WCS keywords (missing " + missing.join(", ") + "; " + kw.length + " keywords in header), trying the XISF solution properties");
+      return solvedFieldFromProperties(view);
+   }
+   if (isNaN(cd12)) cd12 = 0;
+   if (isNaN(cd21)) cd21 = 0;
+
+   let w = view.image.width, h = view.image.height;
+   // image centre in the tangent plane (FITS pixel coordinates are 1-based, centre at (w+1)/2)
+   let dx = (w + 1) / 2 - crpix1, dy = (h + 1) / 2 - crpix2;
+   let dec = crval2 + cd21 * dx + cd22 * dy;
+   let ra = crval1 + (cd11 * dx + cd12 * dy) / Math.cos(dec * Math.PI / 180);
+   ra = (ra % 360 + 360) % 360;
+
+   let scaleX = Math.sqrt(cd11 * cd11 + cd21 * cd21);   // degrees per pixel
+   let scaleY = Math.sqrt(cd12 * cd12 + cd22 * cd22);
+   let radius = 0.5 * Math.sqrt(Math.pow(w * scaleX, 2) + Math.pow(h * scaleY, 2));
+   Console.writeln("[lookup] solution: CRVAL=" + crval1.toFixed(4) + "," + crval2.toFixed(4) +
+                   " CRPIX=" + crpix1.toFixed(1) + "," + crpix2.toFixed(1) +
+                   " scale=" + (scaleX * 3600).toFixed(3) + " arcsec/px, image " + w + "x" + h);
+   return { ra: ra, dec: dec, radius: radius };
+}
+
+// plain-text body of an HTTP GET, or null on failure
+function httpGet(url) {
+   let t = new NetworkTransfer;
+   t.setURL(url);
+   t.setConnectionTimeout(10);
+   // PJSR has no total-time setter: abort from the data callback once the deadline passes
+   let deadline = Date.now() + 30000;
+   t.body = new ByteArray;
+   t.onDownloadDataAvailable = function(data) {
+      this.body.add(data);
+      return Date.now() < deadline;
+   };
+   Console.writeln("[lookup] GET " + url);
+   if (!t.download()) {
+      Console.writeln("[lookup] download failed: " + t.errorInformation + " (HTTP " + t.responseCode + ")");
+      return null;
+   }
+   Console.writeln("[lookup] HTTP " + t.responseCode + ", " + t.body.length + " bytes");
+   return t.body.toString();
+}
+
+// names of the largest SIMBAD objects inside the plate-solved field of a view, biggest first; [] if none or on any failure
+function lookupObjectNames(view) {
+   try {
+      Console.writeln("[lookup] checking " + view.fullId + " for a plate solution");
+      let f = solvedField(view);
+      if (!f) {
+         Console.writeln("[lookup] image not solved, skipping the object lookup");
+         return [];
+      }
+      // objects from 1 arcmin up to 120% of the field diameter (no sky-sized clouds), limited to the well-known catalogues and
+      // named objects: in a wide field the biggest SIMBAD objects are otherwise obscure survey entries (PGCC, TGU, ...)
+      let diameterArcmin = f.radius * 2 * 60;
+      let maxSize = (diameterArcmin * 1.2).toFixed(2);
+      let catalogues = ["NGC", "IC", "M", "LDN", "LBN", "Sh", "vdB", "B", "Cr", "Mel", "Abell", "NAME"];
+      let adql = "SELECT TOP 25 main_id, galdim_majaxis FROM basic" +
+                 " WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', " + f.ra.toFixed(5) + ", " + f.dec.toFixed(5) + ", " + f.radius.toFixed(4) + "))=1" +
+                 " AND galdim_majaxis BETWEEN 1 AND " + maxSize +
+                 " AND (" + catalogues.map(c => "main_id LIKE '" + c + " %'").join(" OR ") + ")" +
+                 " ORDER BY galdim_majaxis DESC";
+      Console.writeln("[lookup] field centre RA " + f.ra.toFixed(4) + " Dec " + f.dec.toFixed(4) + ", radius " + f.radius.toFixed(3) + " deg (" + diameterArcmin.toFixed(1) + " arcmin across)");
+      Console.writeln("[lookup] ADQL: " + adql);
+      let body = httpGet("https://simbad.cds.unistra.fr/simbad/sim-tap/sync?request=doQuery&lang=adql&format=tsv&query=" + encodeURIComponent(adql));
+      if (!body) {
+         Console.writeln("[lookup] SIMBAD lookup failed (no response)");
+         return [];
+      }
+      Console.writeln("[lookup] response start: " + body.substring(0, 300).replace(/\s+/g, " "));
+      let names = [];
+      let rows = body.split("\n");
+      Console.writeln("[lookup] " + rows.length + " response lines");
+      for (let i = 1; i < rows.length; ++i) {   // row 0 is the header
+         let cols = rows[i].split("\t");
+         let name = (cols[0] || "").replace(/"/g, "").replace(/^(NAME|\*|V\*)\s+/, "").replace(/\s+/g, " ").trim();
+         if (name && names.indexOf(name) < 0) {
+            names.push(name);
+         }
+      }
+      Console.writeln("[lookup] " + names.length + " object(s) found" + (names.length ? ": " + names.join(" | ") : ""));
+      return names;
+   } catch (e) {
+      Console.writeln("[lookup] error: " + e.message);
+      return [];
+   }
+}
+
 var CopyRightParameters = {
    text: "",
    setup: {},
@@ -281,14 +429,17 @@ class CopyRightDialog extends Dialog {
       this.viewList.getMainViews();
       this.viewList.currentView = ImageWindow.activeWindow.currentView;
       CopyRightParameters.targetView = this.viewList.currentView;
-      this.viewList.onViewSelected = function (view) {
+      this.viewList.onViewSelected = (view) => {
          CopyRightParameters.targetView = view;
+         this.lookupObject();
       }
 
       // title
       this.titleLabel = new Label(this);
       this.titleLabel.text = "Title:";
       this.editBox = new Edit(this);
+      // an object name found by the lookup replaces the title only while the title has not been edited by hand
+      this.titleEdited = !!CopyRightParameters.text;
       if (CopyRightParameters.text) {
          this.editBox.text = CopyRightParameters.text;
       } else {
@@ -296,9 +447,82 @@ class CopyRightDialog extends Dialog {
       }
 
       CopyRightParameters.text = this.editBox.text;
-      this.editBox.onTextUpdated = function(value) {
+      this.editBox.onTextUpdated = (value) => {
          CopyRightParameters.text = value;
+         this.titleEdited = true;
       }
+
+      // objects found in the header and in the plate-solved field (SIMBAD); picking one sets the title to the bare name
+      this.objectCombo = new ComboBox(this);
+      this.objectCombo.enabled = false;
+      this.objectNames = [];
+      this.setObjectTitle = (name) => {
+         this.editBox.text = name;
+         CopyRightParameters.text = this.editBox.text;
+      }
+      this.objectCombo.onItemSelected = (index) => {
+         if (index >= 0 && index < this.objectNames.length) {
+            this.setObjectTitle(this.objectNames[index]);
+            this.titleEdited = false;
+         }
+      }
+
+      this.lookupButton = new PushButton(this);
+      this.lookupButton.text = "Find object";
+      this.lookupButton.toolTip = "Looks up objects in the plate-solved field of the selected image on SIMBAD (needs an internet connection). Silently does nothing if the image is not solved.";
+      this.lookupButton.onClick = () => {
+         this.titleEdited = false;
+         this.lookupObject();
+      }
+
+      this.lookupObject = () => {
+         let view = CopyRightParameters.targetView;
+         Console.show();
+         if (!view || view.isNull) {
+            Console.writeln("[lookup] no target view");
+         }
+         this.objectNames = [];
+         let bestName = "";   // used for the automatic title: the OBJECT keyword, else the largest SIMBAD object
+         if (view && !view.isNull) {
+            // the OBJECT keyword written by the capture software comes first, then the SIMBAD candidates in alphabetical order
+            let obj = headerValue(view.window.keywords, ["OBJECT"]).replace(/\s+/g, " ");
+            if (obj) {
+               Console.writeln("[lookup] OBJECT keyword in the header: " + obj);
+               this.objectNames.push(obj);
+               bestName = obj;
+            } else {
+               Console.writeln("[lookup] no OBJECT keyword in the header");
+            }
+            let found = lookupObjectNames(view);   // largest first
+            if (!bestName && found.length > 0) {
+               bestName = found[0];
+            }
+            found.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+            for (let n of found) {
+               if (this.objectNames.findIndex(o => o.toLowerCase() == n.toLowerCase()) < 0) {
+                  this.objectNames.push(n);
+               }
+            }
+         }
+         this.objectCombo.clear();
+         for (let n of this.objectNames) {
+            this.objectCombo.addItem(n);
+         }
+         this.objectCombo.enabled = this.objectNames.length > 0;
+         if (this.objectNames.length > 0) {
+            if (this.titleEdited) {
+               Console.writeln("[lookup] title edited by hand, not replaced (best match: " + bestName + ")");
+            } else {
+               Console.writeln("[lookup] title set to: " + bestName);
+               this.setObjectTitle(bestName);
+            }
+         }
+      }
+
+      this.objectSizer = new HorizontalSizer;
+      this.objectSizer.spacing = 8;
+      this.objectSizer.add(this.objectCombo, 100);
+      this.objectSizer.add(this.lookupButton);
 
       // setup details, one edit per field (empty fields are skipped)
       this.setupSizer = new VerticalSizer;
@@ -495,6 +719,8 @@ class CopyRightDialog extends Dialog {
       this.sizer.addSpacing(10);
       this.sizer.add(this.titleLabel);
       this.sizer.add(this.editBox);
+      this.sizer.addSpacing(4);
+      this.sizer.add(this.objectSizer);
       this.sizer.addSpacing(10);
       this.sizer.add(this.setupSizer);
       this.sizer.addSpacing(4);
@@ -506,6 +732,9 @@ class CopyRightDialog extends Dialog {
       this.sizer.add(this.checkBox);
       this.sizer.addSpacing(10);
       this.sizer.add(this.bottomSizer);
+
+      // fills the title with the object name if the image is plate-solved
+      this.lookupObject();
    }
 }
 

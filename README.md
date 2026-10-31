@@ -54,11 +54,13 @@ The image itself is annotated in place (use Undo to take the text off). The new-
 | Location(s) | A dropdown of your saved sites plus **Custom**. The edit box is enabled only for Custom. **Save as site** stores the typed name with the coordinates of the last header read; **Edit sites...** opens the site editor (see below). |
 | Copyright | Defaults to `© <current year> <name>`. |
 
-Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is per image and is not remembered.
+Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is per image and is not remembered.
 
 ### Layout and appearance
 
-The **Layout and appearance** group sets the corner of the title, of the setup block and of the copyright, the alignment of the lines inside the setup block (left or right), the font (any installed font name) and the colour. A preview on the shape of the target image shows where the texts will go and updates as you type. **Reset layout** restores the defaults.
+The **Layout and appearance** group sets the corner of the title, of the setup block and of the copyright, the alignment of the lines inside the setup block (left or right), the font (any installed font name) and the colour. A preview shows the target image with the texts where they will go, and updates as you change the settings (the font is applied when you finish editing the field). **Reset layout** restores the defaults.
+
+The **AutoSTF** checkbox under the preview stretches the preview image automatically, which is needed for a linear image. Unchecked, the screen stretch of the image is used. It affects only the preview, never the image, and the choice is remembered. The preview is made from a copy reduced to 600 pixels (`PREVIEW_BITMAP_PX`).
 
 - Texts that share a corner are stacked from the edge of the image inwards.
 - When the texts on the left and right corners of the same edge are too wide to fit side by side, the widest one is made smaller, down to 8 pt. If they still do not fit, a warning is written to the Process Console.
@@ -83,7 +85,7 @@ Sites are not part of the source: they are stored in the PixInsight settings (ke
 
 ### Object lookup
 
-When the dialog opens, when the target view changes and when you click **Find object**:
+When the dialog opens and when the target view changes, only the `OBJECT` keyword of the image header is read (no network access). Click **Find object** to query SIMBAD:
 
 1. The `OBJECT` keyword of the image header, if present, is the first candidate.
 2. If the image is plate-solved, SIMBAD is queried for named objects inside the field. The solution is read from WCS keywords (`CRVAL`, `CRPIX`, `CD`/`CDELT`), or else from the XISF `AstrometricSolution:*` properties (reference point, reference pixel and linear transformation matrix). Only the sky position and radius are sent. Two queries are made:
@@ -93,13 +95,15 @@ When the dialog opens, when the target view changes and when you click **Find ob
 
 The title is set to the `OBJECT` value, or else to the largest SIMBAD object. A title you have edited by hand is not replaced. An unsolved image, no network or no match leaves the title alone; a line under the title says what happened.
 
-The lookup starts after the dialog is on screen. The interface is repainted while SIMBAD answers (input is ignored meanwhile), each request is aborted after 20 s, and the result is remembered per image until the dialog closes; **Find object** asks again.
+The interface is repainted while SIMBAD answers (input is ignored meanwhile). A server that does not accept the connection within 5 s is abandoned, and each request is aborted after 20 s. The result is remembered per image until the dialog closes; **Find object** asks again.
+
+Two SIMBAD servers are used: the Harvard mirror (`simbad.cfa.harvard.edu`) and the main server in Strasbourg (`simbad.cds.unistra.fr`). If the first one cannot be reached, the other is tried. The server that answered is tried first from then on, also in the next runs (PixInsight setting `InsAnnotation/simbadServer`).
 
 The Process Console shows a one-line summary of each lookup. To log every step, set `VERBOSE_LOOKUP` to `true` at the top of `InsAnnotation.js`.
 
 ## Customising
 
-At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `VERBOSE_LOOKUP`.
+At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `SIMBAD_URLS` (the servers, in the order they are tried), `PREVIEW_BITMAP_PX`, `VERBOSE_LOOKUP`.
 
 In `InsAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_PITCH`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
 
@@ -114,6 +118,7 @@ node --test tests/core.test.js
 ## Notes and limitations
 
 - Text widths are measured with a pixel-sized font at 96 dpi (`ANNOTATION_PX_PER_POINT` in `InsAnnotationCore.jsh`), not with a point size, so they do not depend on the display scaling. The layout assumes the Annotation process takes the font size in points and the position as the text's top-left corner. If lines look misaligned on your system, adjust `ANNOTATION_PX_PER_POINT` and `BASELINE_SHIFT`.
+- The Annotation process draws text wider than the font metrics of the script predict (about 30% on the machine where this was measured, for Palatino Linotype and Arial). To keep the texts inside the image, the script measures the real width of each font once per session: it renders a sample text with the Annotation process on a small hidden image (about 100 ms) and corrects all widths by the ratio. The Process Console shows a `[calibration]` line with the factor. The correction is also applied to the preview text. The text height is assumed to scale with the same factor; this has not been checked.
 - The preview uses the same layout code as the annotation, with the installed font drawn at a reduced size; it is a guide, not a pixel-exact rendering.
 - Nicknames such as "The Giraffe Nebula" are not in SIMBAD. The lookup returns catalogue names, for example `LDN 1295`.
 

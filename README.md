@@ -54,7 +54,7 @@ The image itself is annotated in place (use Undo to take the text off). The new-
 | Location(s) | A dropdown of your saved sites plus **Custom**. The edit box is enabled only for Custom. **Save as site** stores the typed name with the coordinates of the last header read; **Edit sites...** opens the site editor (see below). |
 | Copyright | Defaults to `© <current year> <name>`. |
 
-Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is remembered per image (by the file of the image, else by the view name), as soon as it changes, so it is still there after *Close*, an error or a restart; the last 200 images are kept. A remembered title is treated as typed by hand and is not replaced by the object lookup until you press *Find object*.
+Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice, the save-files option and the resampled PNG size limit are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is remembered per image (by the file of the image, else by the view name), as soon as it changes, so it is still there after *Close*, an error or a restart; the last 200 images are kept. A remembered title is treated as typed by hand and is not replaced by the object lookup until you press *Find object*.
 
 ### Layout and appearance
 
@@ -103,7 +103,7 @@ The Process Console shows a one-line summary of each lookup. To log every step, 
 
 ## Customising
 
-At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `SIMBAD_URLS` (the servers, in the order they are tried), `PREVIEW_BITMAP_PX`, `VERBOSE_LOOKUP`.
+At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `SIMBAD_URLS` (the servers, in the order they are tried), `PREVIEW_BITMAP_PX`, `VERBOSE_LOOKUP`, `SHARE_DEBUG` (`true` logs every attempt and the time of each saving step for the resampled PNG).
 
 In `InsAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_SPACING`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
 

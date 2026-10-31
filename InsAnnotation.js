@@ -6,6 +6,7 @@
 #include <pjsr/TextAlign.jsh>
 #include <pjsr/StdButton.jsh>
 #include <pjsr/StdIcon.jsh>
+#include <pjsr/UndoFlag.jsh>
 #include <pjsr/FrameStyle.jsh>
 #include <pjsr/controls/SimpleColorDialog.js>
 
@@ -430,10 +431,46 @@ function writeShareCopy(view, path, limitBytes, fullBytes) {
    }
 }
 
+// creates a new window with a copy of the pixels, keywords, properties, astrometric solution and STF of the view; the window stays open
+function duplicateView(view) {
+   let src = view.window;
+   let img = view.image;
+   let w = new ImageWindow(img.width, img.height, img.numberOfChannels, src.bitsPerSample, src.isFloatSample, img.isColor,
+                           view.id + "_annotated");
+   w.mainView.beginProcess(UndoFlag_NoSwapFile);
+   w.mainView.image.assign(img);
+   w.mainView.endProcess();
+   w.keywords = src.keywords;
+   let copied = 0;
+   for (let id of view.properties) {
+      try {
+         w.mainView.setPropertyValue(id, view.propertyValue(id), view.propertyType(id), view.propertyAttributes(id));
+         ++copied;
+      } catch (e) {
+         // reserved properties cannot be set by scripts: they are recomputed by the core
+      }
+   }
+   try {
+      w.copyAstrometricSolution(src);
+   } catch (e) {
+      Console.writeln("[duplicate] astrometric solution not copied: " + e.message);
+   }
+   try {
+      w.mainView.stf = view.stf;
+   } catch (e) {
+      Console.writeln("[duplicate] STF not copied: " + e.message);
+   }
+   w.show();
+   w.bringToFront();
+   Console.writeln("Annotating the duplicate " + w.mainView.id + " (" + copied + " properties copied); the original " + view.id + " is untouched.");
+   return w.mainView;
+}
+
 // "<name>.annotated.<ext>", "<name>.annotated.png" (8 bit) and "<name>.annotated.resample.png" (8 bit, reduced to the size limit,
 // only if the full-size PNG exceeds it) next to the file of the view; asks before overwriting
-function saveAnnotatedCopies(view) {
-   let filePath = view.window.filePath;
+function saveAnnotatedCopies(view, sourcePath) {
+   // sourcePath: the file of the original image when view is a duplicate (a duplicate has no file of its own)
+   let filePath = sourcePath || view.window.filePath;
    if (!filePath) {
       showMessage("The image has no file on disk, so the annotated copies were not saved. Save the image first.", StdIcon_Warning);
       return;
@@ -488,6 +525,7 @@ var Params = {
    saveFiles: undefined,
    shareLimitMiB: 15,   // size limit of the resampled PNG, in MiB (WhatsApp accepts 16 MB); dialog setting only
    autoStf: true,   // AutoSTF checkbox of the preview (dialog setting only, not a process instance parameter)
+   annotateDuplicate: false,   // annotate a duplicate window and keep the original untouched (dialog setting only)
 
    // process instance (new instance icon / saved project); the parameter ids are kept from the first versions
    save: function() {
@@ -533,6 +571,7 @@ var Params = {
       Settings.write(SETTINGS_KEY_PREFIX + "saveFiles", DataType_Boolean, Params.saveFiles);
       Settings.write(SETTINGS_KEY_PREFIX + "shareLimitMiB", DataType_Double, Params.shareLimitMiB);
       Settings.write(SETTINGS_KEY_PREFIX + "autoStf", DataType_Boolean, Params.autoStf);
+      Settings.write(SETTINGS_KEY_PREFIX + "annotateDuplicate", DataType_Boolean, Params.annotateDuplicate);
       for (let key in LAYOUT_DATA_TYPES) {
          Settings.write(SETTINGS_KEY_PREFIX + "layout_" + key, LAYOUT_DATA_TYPES[key], Params.layout[key]);
       }
@@ -559,6 +598,10 @@ var Params = {
       let a = Settings.read(SETTINGS_KEY_PREFIX + "autoStf", DataType_Boolean);
       if (Settings.lastReadOK) {
          Params.autoStf = a;
+      }
+      let d = Settings.read(SETTINGS_KEY_PREFIX + "annotateDuplicate", DataType_Boolean);
+      if (Settings.lastReadOK) {
+         Params.annotateDuplicate = d;
       }
       for (let key in LAYOUT_DATA_TYPES) {
          let v = Settings.read(SETTINGS_KEY_PREFIX + "layout_" + key, LAYOUT_DATA_TYPES[key]);
@@ -1465,6 +1508,15 @@ class AnnotationDialog extends Dialog {
          this.shareLimitEdit.enabled = value;
       }
 
+      this.duplicateCheckBox = new CheckBox(this);
+      this.duplicateCheckBox.checked = Params.annotateDuplicate;
+      this.duplicateCheckBox.text = "Annotate a duplicate (keep the original untouched)";
+      this.duplicateCheckBox.toolTip = "Creates a new window <id>_annotated, annotates it and leaves it open. The original image is not modified. " +
+                                       "The saved copies are named after the file of the original image.";
+      this.duplicateCheckBox.onCheck = (value) => {
+         Params.annotateDuplicate = value;
+      }
+
       this.shareLimitEdit = new NumericEdit(this);
       this.shareLimitEdit.label.text = "Resampled PNG size limit (MiB):";
       this.shareLimitEdit.setReal(true);
@@ -1529,6 +1581,7 @@ class AnnotationDialog extends Dialog {
       this.sizer.addSpacing(10);
       this.sizer.add(this.layoutGroup);
       this.sizer.addSpacing(10);
+      this.sizer.add(this.duplicateCheckBox);
       this.sizer.add(this.checkBox);
       this.sizer.add(this.shareLimitEdit);
       this.sizer.addSpacing(10);
@@ -1589,10 +1642,13 @@ function main() {
          Console.writeln("Setup: ", buildSetupLines(Params.setup).join(" | "));
          Console.writeln("CopyrightText: ", Params.copyrightText);
          Console.writeln("TargetView: ", view.id);
-         timed("annotation", () => insertAnnotation(view, Params.text, Params.setup, Params.copyrightText, Params.layout));
+         // with a duplicate, the original stays untouched and its file name is used for the saved copies
+         let sourcePath = view.window.filePath;
+         let target = Params.annotateDuplicate ? timed("duplicate", () => duplicateView(view)) : view;
+         timed("annotation", () => insertAnnotation(target, Params.text, Params.setup, Params.copyrightText, Params.layout));
 
          if (Params.saveFiles) {
-            timed("saving all copies", () => saveAnnotatedCopies(view));
+            timed("saving all copies", () => saveAnnotatedCopies(target, sourcePath));
          }
       } catch (e) {
          Console.criticalln("InsAnnotation failed: " + e.message);

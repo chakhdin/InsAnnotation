@@ -17,7 +17,7 @@ By default:
 
 - **Title**: top left, upright bold.
 - **Setup details**: bottom right, one line per filled field, upright bold, smaller than the title. The lines share a left edge, the widest line ends at the right margin, and the last line sits on the copyright baseline.
-- **Copyright**: bottom left, italic bold.
+- **Copyright**: bottom left, italic bold (upright bold when the font has no real italic face).
 
 The corner of each text, the alignment of the setup lines, the font and the colour can be changed (see *Layout and appearance*). Sizes and positions scale with the image height.
 
@@ -46,7 +46,7 @@ The image itself is annotated in place (use Undo to take the text off). The new-
 
 | Field | Notes |
 |---|---|
-| Title | Free text. Filled automatically when an object is found (see below), otherwise starts as ` on DD/MM/YYYY`, using `DATE-OBS` of the image when present, else today. |
+| Title | Free text. Filled automatically when an object is found (see below), otherwise empty. |
 | Telescope, Mount, Camera | Printed as typed. |
 | Filters (if any) | Printed as typed. |
 | Exposure per filter | Free text, for example `L 40x300 s, R 20x300 s`. |
@@ -58,9 +58,9 @@ Empty fields are skipped. Every field has a tooltip. Setup details, copyright, l
 
 ### Layout and appearance
 
-The **Layout and appearance** group sets the corner of the title, of the setup block and of the copyright, the alignment of the lines inside the setup block (left or right), the font (any installed font name) and the colour. A preview shows the target image with the texts where they will go, and updates as you change the settings (the font is applied when you finish editing the field). **Reset layout** restores the defaults.
+The **Layout and appearance** group sets the corner of the title, of the setup block and of the copyright, the alignment of the lines inside the setup block (left or right), the font (a drop-down list of the installed Latin text fonts; symbol fonts are not listed) and the colour. A preview shows the target image with the texts where they will go, and updates as you change the settings. The colour dialog has a **Reset** button that restores the default colour (192, 192, 192); **Reset layout** restores all the defaults.
 
-The **AutoSTF** checkbox under the preview stretches the preview image automatically, which is needed for a linear image. Unchecked, the screen stretch of the image is used. It affects only the preview, never the image, and the choice is remembered. The preview is made from a copy reduced to 600 pixels (`PREVIEW_BITMAP_PX`).
+The **AutoSTF** checkbox under the preview stretches the preview image automatically, which is needed for a linear image. It is applied only when the median of the image is below 0.2 (`AUTOSTF_MAX_MEDIAN`); a brighter image is considered already stretched and shown as it is. Unchecked, the screen stretch of the image is used. It affects only the preview, never the image, and the choice is remembered. The preview is made from a copy reduced to 600 pixels (`PREVIEW_BITMAP_PX`).
 
 - Texts that share a corner are stacked from the edge of the image inwards.
 - When the texts on the left and right corners of the same edge are too wide to fit side by side, the widest one is made smaller, down to 8 pt. If they still do not fit, a warning is written to the Process Console.
@@ -105,7 +105,7 @@ The Process Console shows a one-line summary of each lookup. To log every step, 
 
 At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `SIMBAD_URLS` (the servers, in the order they are tried), `PREVIEW_BITMAP_PX`, `VERBOSE_LOOKUP`.
 
-In `InsAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_PITCH`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
+In `InsAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_SPACING`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
 
 ## Tests
 
@@ -117,8 +117,10 @@ node --test tests/core.test.js
 
 ## Notes and limitations
 
-- Text widths are measured with a pixel-sized font at 96 dpi (`ANNOTATION_PX_PER_POINT` in `InsAnnotationCore.jsh`), not with a point size, so they do not depend on the display scaling. The layout assumes the Annotation process takes the font size in points and the position as the text's top-left corner. If lines look misaligned on your system, adjust `ANNOTATION_PX_PER_POINT` and `BASELINE_SHIFT`.
-- The Annotation process draws text wider than the font metrics of the script predict (about 30% on the machine where this was measured, for Palatino Linotype and Arial). To keep the texts inside the image, the script measures the real width of each font once per session: it renders a sample text with the Annotation process on a small hidden image (about 100 ms) and corrects all widths by the ratio. The Process Console shows a `[calibration]` line with the factor. The correction is also applied to the preview text. The text height is assumed to scale with the same factor; this has not been checked.
+- The Annotation process takes the font size in points and draws it through the PixInsight display settings (*Core UI Resources*: UI scaling factor and font resolution). With a UI scaling factor of 1.25 and 100 dpi, a size is about 1.30 times larger in pixels than at 1.00 and 96 dpi. A font created with the same point size follows the same settings, so the script measures the width, the ascent and the descent of the texts with such a font. There is no calibration and nothing to configure; these settings cannot be read by a script directly. The position is the top-left corner of the text. The line distance is the font height times `LINE_SPACING` (`InsAnnotationCore.jsh`), and texts at the bottom of the image share a baseline. Measured with Palatino Linotype and Arial at 24 pt, 1.25 and 100 dpi: the font width matches the rendered ink width to within 1% (Palatino) and 3% (Arial, ink is narrower than the advance width).
+- Symbol fonts (for example OpenSymbol) draw some letters with a fallback font whose size differs from the metrics of the chosen font, so the lines can be misplaced or cut. They are not offered in the font list; a symbol font saved by an earlier version stays selected until you choose another font.
+- A font without a real italic face (for example Mongolian Baiti) is drawn by the Annotation process as a synthesized italic that is clipped at about half of its width, so with such a font the copyright is printed upright.
+- Before each annotation the Process Console shows a `[layout]` report: the font, whether PixInsight found an exact match, the display pixel ratio (the UI scaling factor), the image size, and for each text its size (pt and px), width, ascent, descent and position. Use it to diagnose texts that are clipped or misplaced. The font resolution (dpi) cannot be read by a script and is not shown.
 - The preview uses the same layout code as the annotation, with the installed font drawn at a reduced size; it is a guide, not a pixel-exact rendering.
 - Nicknames such as "The Giraffe Nebula" are not in SIMBAD. The lookup returns catalogue names, for example `LDN 1295`.
 

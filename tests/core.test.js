@@ -127,11 +127,13 @@ test("parseSimbadNames", () => {
 
 // ---- layout ----------------------------------------------------------------------------------------------------------------
 
-// a fake font: every character is 0.6 em wide, an em being the size in points times 4/3 pixels
-const measure = (text, size) => text.length * 0.6 * size * core.ANNOTATION_PX_PER_POINT;
+// a fake font: every character is 0.6 em wide, the ascent is 0.9 em and the descent 0.3 em, an em being the size in points times 4/3 pixels
+const em = (size) => size * 4 / 3;
+const measure = (text, size) => text.length * 0.6 * em(size);
+const metrics = (size) => ({ ascent: 0.9 * em(size), descent: 0.3 * em(size) });
 const base = (extra) => Object.assign({
    width: 1440, height: 720, title: "NGC 1851", copyright: "(c) 2026 Me", setupLines: ["Scope", "Camera", "Total exposure: 7h"],
-   layout: core.LAYOUT_DEFAULTS, measure
+   layout: core.LAYOUT_DEFAULTS, measure, metrics
 }, extra);
 const byText = (layout, text) => layout.items.find((i) => i.text == text);
 
@@ -145,10 +147,14 @@ test("default layout reproduces the original placement", () => {
    assert.equal(copy.x, margin);
    assert.equal(copy.y, h - 40);
    assert.equal(copy.italic, true);
-   const shift = (fontSize - setupSize) * 1.25;
+   // the setup block shares the baseline of the copyright: it is lowered by the difference of the ascents
+   const shift = metrics(fontSize).ascent - metrics(setupSize).ascent;
    const last = byText(l, "Total exposure: 7h"), first = byText(l, "Scope");
    near(last.y, h - 40 + shift);
-   near(first.y, h - 40 + shift - 2 * setupSize * 1.7);
+   assert.ok(shift > 0);
+   // the lines are one font height (ascent + descent) apart
+   const pitch = (metrics(setupSize).ascent + metrics(setupSize).descent) * core.LINE_SPACING;
+   near(first.y, h - 40 + shift - 2 * pitch);
    // flush-left block whose widest line ends at the right margin
    near(last.x + measure("Total exposure: 7h", setupSize), 1440 - margin);
    assert.equal(first.x, last.x);

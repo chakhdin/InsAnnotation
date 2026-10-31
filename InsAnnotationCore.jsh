@@ -262,18 +262,19 @@ function parseSimbadNames(body) {
 // Layout of the annotations
 // ---------------------------------------------------------------------------------------------------------------------
 
-// Annotation font sizes are typographical points; the text is rendered at 96 dpi, so a point is 4/3 pixel
-var ANNOTATION_PX_PER_POINT = 96 / 72;
-
 var REFERENCE_HEIGHT = 720;     // sizes and margins are defined for an image 720 px tall and scale with the height
 var MIN_FONT_SIZE = 8;          // the layout never shrinks a text below this (points)
-var LINE_PITCH = 1.7;           // distance between lines, in font sizes
+var LINE_SPACING = 1.0;         // distance between lines, in font heights (ascent + descent)
 var SETUP_SIZE_RATIO = 0.75;    // the setup block is smaller than the title and the copyright
-var BASELINE_SHIFT = 1.25;      // pixels a smaller font must be lowered per point of size difference to share a baseline
 
 // Positions of the title, the setup block and the copyright in the corners of an image.
+// The Annotation process draws a font size given in points through the PixInsight display settings (UI scaling factor and
+// font resolution), so widths and heights come from a Font created with that point size, never from a fixed pixel ratio.
 //   spec: { width, height, title, copyright, setupLines, layout (see LAYOUT_DEFAULTS),
-//           measure(text, size, bold, italic) -> width in image pixels }
+//           hasItalic (optional, default true): false when the font has no real italic face, the copyright is then upright,
+//           measure(text, size, bold, italic) -> width in image pixels,
+//           metrics(size, italic) -> { ascent, descent } of the font in image pixels, ascent being the distance
+//           from the top of the text to its baseline }
 // Returns { items: [{ text, x, y, size, italic }], warnings: [string], fontSize }, x and y being the top left corner of the text.
 // Elements in the same corner are stacked from the image edge inwards (top corners: title, setup, copyright; bottom corners:
 // copyright, setup, title); when the elements of the left and right corners of an edge are too wide to fit side by side, the
@@ -298,7 +299,7 @@ function computeLayout(spec) {
                  corner: layout.setupCorner, align: layout.setupAlign });
    }
    if (spec.copyright) {
-      els.push({ id: "copyright", lines: [spec.copyright], size: fontSize, italic: true, corner: layout.copyrightCorner, align: "left" });
+      els.push({ id: "copyright", lines: [spec.copyright], size: fontSize, italic: spec.hasItalic !== false, corner: layout.copyrightCorner, align: "left" });
    }
 
    var lineWidth = function(el, line) { return spec.measure(line, el.size, true, el.italic); };
@@ -340,10 +341,12 @@ function computeLayout(spec) {
       var cursor = top ? topY : bottomY;
       (top ? inCorner : inCorner.slice().reverse()).forEach(function(el) {
          var n = el.lines.length;
-         var pitch = el.size * LINE_PITCH;
+         var m = spec.metrics(el.size, el.italic);
+         var pitch = (m.ascent + m.descent) * LINE_SPACING;
          var maxW = blockWidth(el);
          var blockLeft = left ? margin : Math.max(margin, w - margin - maxW);
-         var shift = top ? 0 : (fontSize - el.size) * BASELINE_SHIFT;   // a smaller font sits higher in its box
+         // texts at the bottom share the baseline of the reference font: a smaller font is lowered by the difference of the ascents
+         var shift = top ? 0 : spec.metrics(fontSize, false).ascent - m.ascent;
          el.lines.forEach(function(line, i) {
             var x = el.align == "right" ? blockLeft + maxW - lineWidth(el, line) : blockLeft;
             var y = top ? cursor + i * pitch : cursor + shift - (n - 1 - i) * pitch;

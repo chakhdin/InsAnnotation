@@ -926,7 +926,7 @@ class AnnotationDialog extends Dialog {
       this.viewList.onViewSelected = (view) => {
          Params.targetView = view;
          this.updatePreviewSize();
-         this.restoreTitle();
+         this.restoreTitle(true);
          this.lookupObject(false, true);
       }
 
@@ -950,13 +950,18 @@ class AnnotationDialog extends Dialog {
          saveTitle(Params.targetView, value);
          this.refreshPreview();
       }
-      // the remembered title of the target image, if any, replaces the title and counts as typed by hand
-      this.restoreTitle = () => {
+      // the remembered title of the target image, if any, replaces the title and counts as typed by hand;
+      // without one the field is emptied when the image is changed (clearIfNone), so the title of the previous image is not carried over
+      this.restoreTitle = (clearIfNone) => {
          let saved = loadTitle(Params.targetView);
          if (saved) {
             this.titleEdit.text = saved;
             Params.text = saved;
             this.titleEdited = true;
+         } else if (clearIfNone) {
+            this.titleEdit.text = "";
+            Params.text = "";
+            this.titleEdited = false;
          }
       }
 

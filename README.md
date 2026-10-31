@@ -1,6 +1,6 @@
 # InsAnnotation
 
-Version 1.1.0. A PixInsight script that puts a title, the imaging setup details and a copyright notice on an image, using the Annotation process, and optionally saves annotated copies.
+Version 1.2.0. A PixInsight script that puts a title, the imaging setup details and a copyright notice on an image, using the Annotation process, and optionally saves annotated copies.
 
 ```
 NGC 1851                                              (top left)

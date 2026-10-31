@@ -1,6 +1,6 @@
 #engine v8
 #feature-id Render > InsertAnnotation
-#feature-info Version 1.1.0. This script inserts a title, the setup details and the copyright, and optionally saves annotated copies (original format and PNG). The setup details, the copyright, the layout and the imaging sites are remembered between runs and PixInsight launches.
+#feature-info Version 1.1.0. This script inserts a title, the setup details and the copyright, and optionally saves annotated copies (original format, PNG and a resampled PNG under a size limit). The setup details, the copyright, the layout and the imaging sites are remembered between runs and PixInsight launches.
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/TextAlign.jsh>
@@ -75,6 +75,38 @@ function loadLocations() {
 
 function saveLocations() {
    Settings.write(SETTINGS_KEY_PREFIX + "locations", DataType_UCString, JSON.stringify(LOCATIONS));
+}
+
+// The title is remembered per image (the file of the window, else the view id) in the settings, key InsAnnotation/titles
+// (JSON map image -> title), at every change, so that it survives Close, an error or a PixInsight restart.
+function titleKey(view) {
+   return view && !view.isNull ? (view.window.filePath || view.fullId) : "";
+}
+
+function readTitleMap() {
+   let s = Settings.read(SETTINGS_KEY_PREFIX + "titles", DataType_UCString);
+   if (!Settings.lastReadOK) {
+      return {};
+   }
+   try {
+      let m = JSON.parse(s);
+      return m && typeof m == "object" ? m : {};
+   } catch (e) {
+      return {};
+   }
+}
+
+function loadTitle(view) {
+   let key = titleKey(view);
+   let m = readTitleMap();
+   return key && typeof m[key] == "string" ? m[key] : "";
+}
+
+function saveTitle(view, title) {
+   let key = titleKey(view);
+   if (key) {
+      Settings.write(SETTINGS_KEY_PREFIX + "titles", DataType_UCString, JSON.stringify(updateTitleMap(readTitleMap(), key, title)));
+   }
 }
 
 function showMessage(text, icon) {
@@ -301,8 +333,9 @@ function lookupObjectNames(view) {
    }
 }
 
-// writes a copy of the view to a file without rebinding the window to it (ImageWindow.saveAs would)
-function writeImageCopy(view, path, asPng) {
+// writes a copy of the view to a file without rebinding the window to it (ImageWindow.saveAs would).
+// A PNG is written with 8 bits per sample. image (default: the image of the view) is for the reduced copy of writeShareCopy
+function writeImageCopy(view, path, asPng, image) {
    let window = view.window;
    let format = new FileFormat(File.extractExtension(path), false/*toRead*/, true/*toWrite*/);
    let fi = new FileFormatInstance(format);
@@ -314,7 +347,7 @@ function writeImageCopy(view, path, asPng) {
          throw new Error("Cannot create " + path);
       }
       let d = new ImageDescription;
-      d.bitsPerSample = asPng ? 16 : window.bitsPerSample;
+      d.bitsPerSample = asPng ? 8 : window.bitsPerSample;
       d.ieeefpSampleFormat = asPng ? false : window.isFloatSample;
       if (!fi.setOptions(d)) {
          throw new Error("Cannot set the output options of " + path);
@@ -325,7 +358,7 @@ function writeImageCopy(view, path, asPng) {
       if (format.canStoreImageProperties) {
          window.mainView.exportProperties(fi);
       }
-      if (!fi.writeImage(view.image)) {
+      if (!fi.writeImage(image || view.image)) {
          throw new Error("Cannot write " + path);
       }
    } finally {
@@ -333,7 +366,72 @@ function writeImageCopy(view, path, asPng) {
    }
 }
 
-// "<name>.annotated.<ext>" and "<name>.annotated.png" next to the file of the view; asks before overwriting
+// size of a file in bytes (in PJSR, size is a property of an open File object, not a static function)
+function fileSizeBytes(path) {
+   let f = new File;
+   f.openForReading(path);
+   try {
+      return f.size;
+   } finally {
+      f.close();
+   }
+}
+
+// testing aid: logs every attempt of writeShareCopy and the time of each step; set to false once the shareable PNG works correctly
+var SHARE_DEBUG = false;
+
+// runs fn and, with SHARE_DEBUG, logs how long it took
+function timed(label, fn) {
+   let t0 = Date.now();
+   try {
+      return fn();
+   } finally {
+      if (SHARE_DEBUG) {
+         Console.writeln("[time] " + label + ": " + ((Date.now() - t0) / 1000).toFixed(1) + " s");
+      }
+   }
+}
+
+// Writes an 8-bit PNG of a copy of the view that is not larger than limitBytes, shrinking the copy (both sides by the same factor)
+// until it fits. fullBytes is the size of the full-size PNG, which gives the first factor (without it the first attempt is full size).
+// The view is never touched. Returns the size in bytes, or 0 (after deleting the file) if the limit cannot be met.
+function writeShareCopy(view, path, limitBytes, fullBytes) {
+   let copy = new Image(view.image);
+   try {
+      let factor = fullBytes > limitBytes ? nextShareFactor(1, fullBytes, limitBytes) : 1;
+      for (let attempt = 1; factor !== null; attempt++) {
+         if (factor < 1) {
+            timed("copy and resample to " + factor.toFixed(4), () => {
+               copy.assign(view.image);   // every attempt starts from the original pixels, so the resampling does not compound
+               copy.resample(factor);
+            });
+         }
+         timed("write " + path, () => writeImageCopy(view, path, true, copy));
+         let bytes = fileSizeBytes(path);
+         if (SHARE_DEBUG) {
+            Console.writeln("[share] attempt " + attempt + ": factor " + factor.toFixed(4) + ", " + copy.width + " x " + copy.height +
+                            " px, " + bytes + " bytes (limit " + limitBytes + ")");
+         }
+         if (bytes <= limitBytes) {
+            Console.writeln("Shareable PNG: " + copy.width + " x " + copy.height + " px, " + (bytes / 1048576).toFixed(2) +
+                            " MiB, factor " + factor.toFixed(3));
+            return bytes;
+         }
+         factor = nextShareFactor(factor, bytes, limitBytes);
+      }
+      if (File.exists(path)) {
+         File.remove(path);
+      }
+      Console.warningln("Shareable PNG not saved: the limit of " + (limitBytes / 1048576).toFixed(1) + " MiB cannot be met even at " + Math.round(SHARE_MIN_FACTOR * 100) + "% of each side.");
+      showMessage("The shareable PNG was not saved: it is still over " + (limitBytes / 1048576).toFixed(1) + " MiB at " + Math.round(SHARE_MIN_FACTOR * 100) + "% of each side.", StdIcon_Warning);
+      return 0;
+   } finally {
+      copy.free();
+   }
+}
+
+// "<name>.annotated.<ext>", "<name>.annotated.png" (8 bit) and "<name>.annotated.resample.png" (8 bit, reduced to the size limit,
+// only if the full-size PNG exceeds it) next to the file of the view; asks before overwriting
 function saveAnnotatedCopies(view) {
    let filePath = view.window.filePath;
    if (!filePath) {
@@ -341,7 +439,19 @@ function saveAnnotatedCopies(view) {
       return;
    }
    let fp = File.appendToName(filePath, ".annotated");
-   for (let target of [{ path: fp, png: false }, { path: File.changeExtension(fp, ".png"), png: true }]) {
+   let pngPath = File.changeExtension(fp, ".png");
+   let sharePath = File.appendToName(pngPath, ".resample");
+   let limitBytes = Math.round(Params.shareLimitMiB * 1048576);
+   for (let target of [{ path: fp, png: false }, { path: pngPath, png: true }, { path: sharePath, share: true }]) {
+      if (target.share) {
+         // the full-size PNG just written (or kept after the overwrite question) is the reference
+         let fullBytes = File.exists(pngPath) ? fileSizeBytes(pngPath) : 0;
+         if (!shareCopyNeeded(fullBytes, limitBytes)) {
+            Console.writeln("Shareable PNG skipped: " + pngPath + " is already " + (fullBytes / 1048576).toFixed(2) + " MiB, under the limit of " +
+                            Params.shareLimitMiB + " MiB.");
+            continue;
+         }
+      }
       if (File.exists(target.path)) {
          let answer = (new MessageBox("The file already exists:\n" + target.path + "\n\nOverwrite it?", SCRIPT_TITLE,
                                       StdIcon_Question, StdButton_Yes, StdButton_No)).execute();
@@ -351,7 +461,11 @@ function saveAnnotatedCopies(view) {
          }
       }
       Console.writeln("Saving file " + target.path);
-      writeImageCopy(view, target.path, target.png);
+      if (target.share) {
+         timed("shareable PNG, total", () => writeShareCopy(view, target.path, limitBytes, File.exists(pngPath) ? fileSizeBytes(pngPath) : 0));
+      } else {
+         timed("write " + target.path, () => writeImageCopy(view, target.path, target.png));
+      }
    }
 }
 
@@ -372,6 +486,7 @@ var Params = {
    layout: sanitizeLayout(LAYOUT_DEFAULTS),
    targetView: undefined,
    saveFiles: undefined,
+   shareLimitMiB: 15,   // size limit of the resampled PNG, in MiB (WhatsApp accepts 16 MB); dialog setting only
    autoStf: true,   // AutoSTF checkbox of the preview (dialog setting only, not a process instance parameter)
 
    // process instance (new instance icon / saved project); the parameter ids are kept from the first versions
@@ -409,13 +524,14 @@ var Params = {
       Params.layout = sanitizeLayout(Params.layout);
    },
 
-   // persistent settings (survive PixInsight restarts); the title is per-image and not stored
+   // persistent settings (survive PixInsight restarts); the title is stored per image by saveTitle()
    saveSettings: function() {
       for (let f of SETUP_FIELDS) {
          Settings.write(SETTINGS_KEY_PREFIX + "setup_" + f.key, DataType_UCString, Params.setup[f.key] || "");
       }
       Settings.write(SETTINGS_KEY_PREFIX + "copyrightText", DataType_UCString, Params.copyrightText);
       Settings.write(SETTINGS_KEY_PREFIX + "saveFiles", DataType_Boolean, Params.saveFiles);
+      Settings.write(SETTINGS_KEY_PREFIX + "shareLimitMiB", DataType_Double, Params.shareLimitMiB);
       Settings.write(SETTINGS_KEY_PREFIX + "autoStf", DataType_Boolean, Params.autoStf);
       for (let key in LAYOUT_DATA_TYPES) {
          Settings.write(SETTINGS_KEY_PREFIX + "layout_" + key, LAYOUT_DATA_TYPES[key], Params.layout[key]);
@@ -435,6 +551,10 @@ var Params = {
       let b = Settings.read(SETTINGS_KEY_PREFIX + "saveFiles", DataType_Boolean);
       if (Settings.lastReadOK) {
          Params.saveFiles = b;
+      }
+      let m = Settings.read(SETTINGS_KEY_PREFIX + "shareLimitMiB", DataType_Double);
+      if (Settings.lastReadOK && m >= 1 && m <= 1000) {
+         Params.shareLimitMiB = m;
       }
       let a = Settings.read(SETTINGS_KEY_PREFIX + "autoStf", DataType_Boolean);
       if (Settings.lastReadOK) {
@@ -750,7 +870,7 @@ class AnnotationDialog extends Dialog {
 
       // script title and description
       this.description = new TextBox(this);
-      this.description.text = "<b>Put a title, the setup details and a copyright notice on your image</b><br>Title, setup details and copyright go in the corners chosen under Layout and appearance. Setup details: one line per filled field, remembered between runs. Copyright: remembered between runs.<br>Select the checkbox to save annotated copies (original format and PNG)";
+      this.description.text = "<b>Put a title, the setup details and a copyright notice on your image</b><br>Title, setup details and copyright go in the corners chosen under Layout and appearance. Setup details: one line per filled field, remembered between runs. Copyright: remembered between runs.<br>Select the checkbox to save annotated copies (original format, PNG and resampled PNG)";
       this.description.readOnly = true;
       this.description.scaledMinHeight = 80;
       this.description.scaledMinWidth = 80;
@@ -763,6 +883,7 @@ class AnnotationDialog extends Dialog {
       this.viewList.onViewSelected = (view) => {
          Params.targetView = view;
          this.updatePreviewSize();
+         this.restoreTitle();
          this.lookupObject(false, true);
       }
 
@@ -783,7 +904,17 @@ class AnnotationDialog extends Dialog {
       this.titleEdit.onTextUpdated = (value) => {
          Params.text = value;
          this.titleEdited = true;
+         saveTitle(Params.targetView, value);
          this.refreshPreview();
+      }
+      // the remembered title of the target image, if any, replaces the title and counts as typed by hand
+      this.restoreTitle = () => {
+         let saved = loadTitle(Params.targetView);
+         if (saved) {
+            this.titleEdit.text = saved;
+            Params.text = saved;
+            this.titleEdited = true;
+         }
       }
 
       // objects found in the header and in the plate-solved field (SIMBAD); picking one sets the title to the bare name
@@ -795,6 +926,7 @@ class AnnotationDialog extends Dialog {
       this.setObjectTitle = (name) => {
          this.titleEdit.text = name;
          Params.text = this.titleEdit.text;
+         saveTitle(Params.targetView, Params.text);
          this.refreshPreview();
       }
       this.objectCombo.onItemSelected = (index) => {
@@ -1325,10 +1457,24 @@ class AnnotationDialog extends Dialog {
          this.checkBox.checked = true;
          Params.saveFiles = this.checkBox.checked;
       }
-      this.checkBox.text = "Save annotated copies (original format and PNG)";
-      this.checkBox.toolTip = "Writes <name>.annotated.<ext> and <name>.annotated.png next to the file of the image.";
-      this.checkBox.onCheck = function(value) {
+      this.checkBox.text = "Save annotated copies (original format, PNG and resampled PNG)";
+      this.checkBox.toolTip = "Writes <name>.annotated.<ext> and <name>.annotated.png (8 bit) next to the file of the image, and " +
+                              "<name>.annotated.resample.png (reduced to the size limit) if the full-size PNG is larger than the limit.";
+      this.checkBox.onCheck = (value) => {
          Params.saveFiles = value;
+         this.shareLimitEdit.enabled = value;
+      }
+
+      this.shareLimitEdit = new NumericEdit(this);
+      this.shareLimitEdit.label.text = "Resampled PNG size limit (MiB):";
+      this.shareLimitEdit.setReal(true);
+      this.shareLimitEdit.setRange(1, 1000);
+      this.shareLimitEdit.setPrecision(1);
+      this.shareLimitEdit.setValue(Params.shareLimitMiB);
+      this.shareLimitEdit.enabled = this.checkBox.checked;
+      this.shareLimitEdit.toolTip = "The resampled PNG is made smaller than this. 15 MiB leaves a margin under the 16 MB limit of WhatsApp.";
+      this.shareLimitEdit.onValueUpdated = (value) => {
+         Params.shareLimitMiB = value;
       }
 
       this.execButton = new PushButton(this);
@@ -1384,11 +1530,13 @@ class AnnotationDialog extends Dialog {
       this.sizer.add(this.layoutGroup);
       this.sizer.addSpacing(10);
       this.sizer.add(this.checkBox);
+      this.sizer.add(this.shareLimitEdit);
       this.sizer.addSpacing(10);
       this.sizer.add(this.bottomSizer);
 
       this.layoutToControls();
       this.updatePreviewSize();
+      this.restoreTitle();
 
       // fills the title from the OBJECT keyword only; SIMBAD is queried when the Lookup button is pressed
       this.lookupObject(false, true);
@@ -1434,16 +1582,17 @@ function main() {
       // remember what was typed before anything can fail
       Params.save();
       Params.saveSettings();
+      saveTitle(view, Params.text);
 
       try {
          Console.writeln("Text: ", Params.text);
          Console.writeln("Setup: ", buildSetupLines(Params.setup).join(" | "));
          Console.writeln("CopyrightText: ", Params.copyrightText);
          Console.writeln("TargetView: ", view.id);
-         insertAnnotation(view, Params.text, Params.setup, Params.copyrightText, Params.layout);
+         timed("annotation", () => insertAnnotation(view, Params.text, Params.setup, Params.copyrightText, Params.layout));
 
          if (Params.saveFiles) {
-            saveAnnotatedCopies(view);
+            timed("saving all copies", () => saveAnnotatedCopies(view));
          }
       } catch (e) {
          Console.criticalln("InsAnnotation failed: " + e.message);

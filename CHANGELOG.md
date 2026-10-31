@@ -3,6 +3,7 @@
 ## 1.1.0 (unreleased)
 
 ### Added
+- A shareable copy, `<name>.annotated.resample.png` written with *Save annotated copies* when the full-size PNG is larger than a size limit (default 15 MiB, editable and remembered; e.g. for WhatsApp, which accepts 16 MB). A copy of the image is reduced, with the annotation already on it, until the file fits; the original image is never changed. It is not written when the full-size PNG already fits, and it is deleted with a warning if the limit cannot be met at 25% of each side.
 - The preview shows the target image, with an *AutoSTF* checkbox (remembered) to stretch it automatically, only when the median of the image is below 0.2.
 - The font is chosen from a drop-down list of the installed Latin text fonts, without symbol fonts such as OpenSymbol, whose glyphs and metrics break the layout (it was a free text field).
 - The copyright is printed upright when the font has no real italic face: the Annotation process clips a synthesized italic at about half of its width (seen with Mongolian Baiti).
@@ -19,6 +20,7 @@
 - Default title date from `DATE-OBS`. Tooltips on the fields. Version, licence, changelog, unit tests.
 
 ### Changed
+- The PNG copy is saved with 8 bits per sample instead of 16 (about 4 times smaller and faster to write; no visible difference on screen or on the web). The copy in the original format keeps the full precision.
 - Annotated copies are written without rebinding the window to the saved file, and you are asked before overwriting. An image without a file on disk is not saved.
 - Settings are saved before the image is annotated; errors are reported in a message box.
 - The SIMBAD lookup no longer runs when the dialog opens or the view changes (the title uses the `OBJECT` keyword); it runs when *Find object* is clicked. It keeps the interface repainted, gives up on a server after 5 s without a connection, is aborted after 20 s, is remembered per image, and logs only a summary unless `VERBOSE_LOOKUP` is set.

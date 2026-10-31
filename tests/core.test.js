@@ -202,3 +202,46 @@ test("empty texts produce no items", () => {
    const l = core.computeLayout(base({ title: "", copyright: "", setupLines: [] }));
    assert.equal(l.items.length, 0);
 });
+
+test("shareCopyNeeded: skipped only when the full-size PNG is already under the limit", () => {
+   const limit = 15 * 1024 * 1024;
+   assert.equal(core.shareCopyNeeded(11048833, limit), false);
+   assert.equal(core.shareCopyNeeded(limit, limit), false);
+   assert.equal(core.shareCopyNeeded(limit + 1, limit), true);
+   assert.equal(core.shareCopyNeeded(0, limit), true);
+});
+
+test("nextShareFactor: shrinks by the size ratio, stops when it fits or is too small", () => {
+   const limit = 15 * 1024 * 1024;
+   assert.equal(core.nextShareFactor(1, limit, limit), null);              // fits
+   near(core.nextShareFactor(1, limit * 4, limit), 0.5 * 0.95);            // sqrt(1/4) with margin
+   near(core.nextShareFactor(1, limit * 1.001, limit), 0.95 / Math.sqrt(1.001)); // barely over: the 0.95 margin still makes progress
+   near(core.nextShareFactor(0.8, limit * 4, limit), 0.8 * 0.5 * 0.95);    // relative to the previous factor
+   assert.equal(core.nextShareFactor(0.26, limit * 100, limit), null);     // below SHARE_MIN_FACTOR
+});
+
+test("nextShareFactor always converges to null or a smaller factor", () => {
+   const limit = 15 * 1024 * 1024;
+   let f = 1;
+   for (let i = 0; i < 200 && f !== null; i++) {
+      const g = core.nextShareFactor(f, limit * 1.0001, limit);   // a file that never fits
+      assert.ok(g === null || g < f);
+      f = g;
+   }
+   assert.equal(f, null);
+});
+
+test("updateTitleMap sets, replaces, removes and keeps only the most recent titles", () => {
+   let m = core.updateTitleMap({}, "a", "NGC 1", 3);
+   m = core.updateTitleMap(m, "b", "NGC 2", 3);
+   assert.deepEqual(Object.keys(m), ["a", "b"]);
+   m = core.updateTitleMap(m, "a", "NGC 1 edited", 3);          // an updated image becomes the most recent
+   assert.deepEqual(Object.keys(m), ["b", "a"]);
+   assert.equal(m.a, "NGC 1 edited");
+   m = core.updateTitleMap(m, "c", "NGC 3", 3);
+   m = core.updateTitleMap(m, "d", "NGC 4", 3);                 // over the maximum: the oldest ("b") is dropped
+   assert.deepEqual(Object.keys(m), ["a", "c", "d"]);
+   m = core.updateTitleMap(m, "c", "", 3);                      // an empty title forgets the image
+   assert.deepEqual(Object.keys(m), ["a", "d"]);
+   assert.deepEqual(Object.keys(core.updateTitleMap(null, "x", "t")), ["x"]);
+});

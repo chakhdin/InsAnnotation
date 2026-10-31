@@ -1,6 +1,6 @@
 #engine v8
 #feature-id Render > InsertAnnotation
-#feature-info Version 1.1.0. This script inserts a title, the setup details and the copyright, and optionally saves annotated copies (original format, PNG and a resampled PNG under a size limit). The setup details, the copyright, the layout and the imaging sites are remembered between runs and PixInsight launches.
+#feature-info Version 1.2.0. This script inserts a title, the setup details and the copyright, and optionally saves annotated copies (original format, PNG and a resampled PNG under a size limit). The setup details, the copyright, the layout and the imaging sites are remembered between runs and PixInsight launches.
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/TextAlign.jsh>
@@ -12,7 +12,7 @@
 // the logic that needs no PixInsight object (layout, angles, plate solution maths, SIMBAD queries) is in this file
 #include "InsAnnotationCore.jsh"
 
-#define SCRIPT_VERSION "1.1.0"
+#define SCRIPT_VERSION "1.2.0"
 #define SCRIPT_TITLE "InsAnnotation"
 #define SETTINGS_KEY_PREFIX "InsAnnotation/"
 

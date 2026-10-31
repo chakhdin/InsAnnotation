@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.2.0 (31/10/2026)
 
 ### Added
 - The title is remembered per image (file of the image, else the view name) every time it changes, also when the dialog is closed with *Close* or the annotation fails; it is restored when the image is selected (last 200 images).

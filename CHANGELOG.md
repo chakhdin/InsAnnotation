@@ -3,8 +3,13 @@
 ## 1.1.0 (unreleased)
 
 ### Added
-- The preview shows the target image, with an *AutoSTF* checkbox (remembered) to stretch it automatically.
-- The text widths are calibrated per font against the Annotation process, which draws wider than the font metrics predict, so the texts no longer run off the image edge. The preview text uses the same correction.
+- The preview shows the target image, with an *AutoSTF* checkbox (remembered) to stretch it automatically, only when the median of the image is below 0.2.
+- The font is chosen from a drop-down list of the installed Latin text fonts, without symbol fonts such as OpenSymbol, whose glyphs and metrics break the layout (it was a free text field).
+- The copyright is printed upright when the font has no real italic face: the Annotation process clips a synthesized italic at about half of its width (seen with Mongolian Baiti).
+- A `[layout]` report in the Process Console before each annotation (font, exact match, display pixel ratio, size, width, ascent, descent and position of every text).
+- A *Reset* button in the colour dialog restores the default text colour.
+- The title now starts empty (it was ` on DD/MM/YYYY`).
+- The texts are measured (width, ascent, descent) with a font created from the same point size as the Annotation process, which follows the PixInsight UI scaling and font resolution settings, so the texts no longer run off the image edge at any setting. The line distance and the common baseline at the bottom come from the real font height. The preview uses the same measurements.
 - A second SIMBAD server (Harvard mirror) is tried when the first cannot be reached; the server that answered is remembered between runs.
 - Layout options: corner of the title, the setup block and the copyright, alignment of the setup lines, font and colour, with a preview on the shape of the target image and a *Reset layout* button. Texts in the same corner are stacked; texts too wide for an edge are shrunk.
 - Site editor (*Edit sites...*) and *Save as site* button. The imaging sites are stored in the PixInsight settings instead of the source.

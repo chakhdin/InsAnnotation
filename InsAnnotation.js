@@ -22,6 +22,9 @@
 // longest side of the reduced copy of the image used for the dialog preview, in pixels
 #define PREVIEW_BITMAP_PX 600
 
+// AutoSTF is applied to the preview only when the median of the image is below this value (0..1); a brighter image is considered already stretched
+#define AUTOSTF_MAX_MEDIAN 0.2
+
 // true if a screen transfer function (array of [m, c0, c1, ...] per channel) leaves the image unchanged
 function isIdentityStf(stf) {
    if (!stf) {
@@ -447,81 +450,48 @@ var Params = {
    }
 }
 
-// Font.width() under-estimates the text drawn by the Annotation process (about 30% on the machine where this was measured).
-// The ratio rendered width / predicted width is measured once per font by rendering a sample text with the Annotation process on
-// a small temporary image (about 100 ms), then kept for the session.
-var TEXT_WIDTH_FACTORS = {};
-
-function textWidthFactor(fontName) {
-   if (fontName in TEXT_WIDTH_FACTORS) {
-      return TEXT_WIDTH_FACTORS[fontName];
-   }
-   let factor = 1;
-   let start = Date.now();
-   let win = null;
-   try {
-      const sample = "Springfield (XX), Country", points = 24;
-      win = new ImageWindow(800, 100, 1, 8, false, false, "InsAnnotationCalib");
-      let view = win.mainView;
-      let P = new Annotation;
-      P.annotationFont = fontName;
-      P.annotationFontBold = true;
-      P.annotationFontItalic = false;
-      P.annotationFontUnderline = false;
-      P.annotationFontShadow = false;
-      P.annotationColor = 0xFFFFFFFF;
-      P.annotationShowLeader = false;
-      P.annotationOpacity = 255;
-      P.annotationText = sample;
-      P.annotationFontSize = points;
-      P.annotationPositionX = 10;
-      P.annotationPositionY = 10;
-      P.executeOn(view);
-
-      // width of the lit columns
-      let img = view.image;
-      let minX = -1, maxX = -1;
-      for (let x = 0; x < img.width; ++x) {
-         let lit = false;
-         for (let y = 0; y < img.height && !lit; y += 2) {
-            lit = img.sample(x, y, 0) > 0.25;
-         }
-         if (lit) {
-            if (minX < 0) {
-               minX = x;
-            }
-            maxX = x;
-         }
-      }
-      let font = new Font(fontName);
-      font.pixelSize = Math.max(1, Math.round(points * ANNOTATION_PX_PER_POINT));
-      font.bold = true;
-      let predicted = font.width(sample);
-      if (minX >= 0 && predicted > 0) {
-         factor = (maxX - minX + 1) / predicted;
-      }
-   } catch (e) {
-      Console.warningln("Cannot calibrate the text width of the font " + fontName + ": " + e.message);
-   } finally {
-      if (win) {
-         win.forceClose();
-      }
-   }
-   Console.writeln(format("[calibration] %s: text width factor %.3f (%d ms)", fontName, factor, Date.now() - start));
-   TEXT_WIDTH_FACTORS[fontName] = factor;
-   return factor;
+// The Annotation process draws a font size given in points through the PixInsight display settings (UI scaling factor and font
+// resolution). A Font created with the same point size follows the same settings, so its measurements are the ones of the rendered text.
+function makeFont(fontName, size, bold, italic) {
+   let font = new Font(fontName);
+   font.pointSize = size;
+   font.bold = bold;
+   font.italic = italic;
+   return font;
 }
 
-// width in image pixels of a text rendered by the Annotation process (bold, the given size in points).
-// A pixel size is used, not a point size: PixInsight scales point sizes with the display density, the Annotation process does not.
+// Installed scalable fonts usable for the texts: Latin fonts that define every character of the annotations. Symbol fonts
+// (e.g. OpenSymbol) are left out: they draw wrong glyphs and have no usable metrics. Falls back to all the fonts if none passes.
+function textFontFamilies() {
+   let required = [0x00A9, 0x00B0];   // copyright sign, degree sign
+   for (let c = 0x20; c <= 0x7E; ++c) {
+      required.push(c);
+   }
+   let families = Font.scalableFamilies(WritingSystem.Latin).filter(function(family) {
+      let font = new Font(family);
+      return required.every(function(c) { return font.isCharDefined(c); });
+   });
+   return families.length > 0 ? families : Font.scalableFamilies();
+}
+
+// A font without a real italic face (e.g. Mongolian Baiti) is drawn by the Annotation process as a synthesized italic that is clipped
+// at about half of its width, so the copyright is printed upright with such fonts.
+function hasItalicFace(fontName) {
+   return makeFont(fontName, 12, true, true).isExactMatch;
+}
+
+// width in image pixels of a text rendered by the Annotation process (the given size in points)
 function makeMeasure(fontName) {
-   let factor = textWidthFactor(fontName);
    return function(text, size, bold, italic) {
-      let font = new Font(fontName);
-      font.pixelSize = Math.max(1, Math.round(size * ANNOTATION_PX_PER_POINT));
-      font.bold = bold;
-      font.italic = italic;
-      return font.width(text) * factor;
+      return makeFont(fontName, size, bold, italic).width(text);
+   };
+}
+
+// ascent and descent in image pixels of the font drawn by the Annotation process (bold, the given size in points)
+function makeMetrics(fontName) {
+   return function(size, italic) {
+      let font = makeFont(fontName, size, true, italic);
+      return { ascent: font.ascent, descent: font.descent };
    };
 }
 
@@ -535,8 +505,28 @@ function buildLayoutSpec(view, text, setup, copyrightText, layout) {
       copyright: copyrightText || ("© " + (new Date).getFullYear() + " " + DEFAULT_AUTHOR),
       setupLines: buildSetupLines(setup),
       layout: layout,
-      measure: makeMeasure(layout.fontName)
+      hasItalic: hasItalicFace(layout.fontName),
+      measure: makeMeasure(layout.fontName),
+      metrics: makeMetrics(layout.fontName)
    };
+}
+
+// console report of the font, the display scaling and what the layout assumes for every text (to diagnose clipped or misplaced texts)
+function logTextMetrics(spec, result) {
+   try {
+      let probe = makeFont(spec.layout.fontName, 12, true, false);
+      Console.writeln("[layout] font \"" + spec.layout.fontName + "\" (exact match: " + String(probe.isExactMatch) +
+         "), display pixel ratio " + (new Dialog).displayPixelRatio.toFixed(3) + ", image " + spec.width + " x " + spec.height +
+         " px, base size " + result.fontSize.toFixed(1) + " pt");
+      for (let item of result.items) {
+         let font = makeFont(spec.layout.fontName, item.size, true, item.italic);
+         Console.writeln("[layout] \"" + item.text + "\": " + item.size.toFixed(1) + " pt = " + font.pixelSize + " px" +
+            (item.italic ? " italic" : "") + ", width " + font.width(item.text) + ", ascent " + font.ascent + ", descent " +
+            font.descent + ", x " + Math.round(item.x) + ", y " + Math.round(item.y));
+      }
+   } catch (e) {
+      Console.warningln("[layout] log failed: " + (e && e.message ? e.message : String(e)));
+   }
 }
 
 function insertAnnotation(view, text, setup, copyrightText, layout) {
@@ -557,6 +547,7 @@ function insertAnnotation(view, text, setup, copyrightText, layout) {
    P.annotationLeaderPositionY = 0;
    P.annotationOpacity = 255;
 
+   logTextMetrics(spec, result);
    Console.writeln("View: ", view.id);
    for (let item of result.items) {
       P.annotationText = item.text;
@@ -757,13 +748,6 @@ class AnnotationDialog extends Dialog {
       this.scaledMinWidth = 640;
       this.windowTitle = SCRIPT_TITLE + " " + SCRIPT_VERSION;
 
-      let curDate = new Date;
-
-      var day = ('0' + curDate.getDate()).slice(-2);
-      var month = ('0' + (curDate.getMonth() + 1)).slice(-2);
-      var year = curDate.getFullYear();
-      var formattedDate = day + '/' + month + '/' + year;
-
       // script title and description
       this.description = new TextBox(this);
       this.description.text = "<b>Put a title, the setup details and a copyright notice on your image</b><br>Title, setup details and copyright go in the corners chosen under Layout and appearance. Setup details: one line per filled field, remembered between runs. Copyright: remembered between runs.<br>Select the checkbox to save annotated copies (original format and PNG)";
@@ -792,10 +776,7 @@ class AnnotationDialog extends Dialog {
       if (Params.text) {
          this.titleEdit.text = Params.text;
       } else {
-         // the observation date of the image when its header has one, else today
-         let target = Params.targetView;
-         let obsDate = (target && !target.isNull) ? observationDate(target.window.keywords) : "";
-         this.titleEdit.text = " on " + (obsDate || formattedDate);
+         this.titleEdit.text = "";
       }
 
       Params.text = this.titleEdit.text;
@@ -1150,13 +1131,13 @@ class AnnotationDialog extends Dialog {
       this.copyrightCornerCombo = makeCombo(CORNERS, "Corner of the image where the copyright is printed.", id => { Params.layout.copyrightCorner = id; });
       this.setupAlignCombo = makeCombo(SETUP_ALIGNMENTS, "Alignment of the lines inside the setup block. Texts that share a corner are stacked.", id => { Params.layout.setupAlign = id; });
 
-      this.fontEdit = new Edit(this);
-      this.fontEdit.toolTip = "Name of an installed font. Falls back to a similar font when it is not installed.";
-      this.fontEdit.onTextUpdated = (value) => {
-         Params.layout.fontName = value.trim() || LAYOUT_DEFAULTS.fontName;
+      this.fontCombo = new ComboBox(this);
+      this.fontCombo.toolTip = "Installed font used for all the texts.";
+      for (let family of textFontFamilies().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))) {
+         this.fontCombo.addItem(family);
       }
-      // the preview is refreshed when the edit is completed, not at every key: each new font name is calibrated (about 100 ms)
-      this.fontEdit.onEditCompleted = () => {
+      this.fontCombo.onItemSelected = (index) => {
+         Params.layout.fontName = this.fontCombo.itemText(index);
          this.refreshPreview();
       }
 
@@ -1166,6 +1147,18 @@ class AnnotationDialog extends Dialog {
          let colorDialog = new SimpleColorDialog(Params.layout.color);
          colorDialog.windowTitle = "Text colour";
          colorDialog.alphaEnabled = false;
+         // Reset button on the left of the OK / Cancel row of the colour dialog
+         let resetButton = new PushButton(colorDialog);
+         resetButton.text = "Reset";
+         resetButton.toolTip = "Puts the colour back to the default (192, 192, 192).";
+         resetButton.onClick = () => {
+            colorDialog.color = LAYOUT_DEFAULTS.color;
+            colorDialog.V0.setValue(Color.red(colorDialog.color));
+            colorDialog.V1.setValue(Color.green(colorDialog.color));
+            colorDialog.V2.setValue(Color.blue(colorDialog.color));
+            colorDialog.sample_Control.update();
+         }
+         colorDialog.buttons_Sizer.insert(0, resetButton);
          if (colorDialog.execute()) {
             Params.layout.color = colorDialog.color >>> 0;
             this.layoutToControls();
@@ -1189,7 +1182,13 @@ class AnnotationDialog extends Dialog {
          this.setupCornerCombo.currentItem = index(CORNERS, Params.layout.setupCorner);
          this.copyrightCornerCombo.currentItem = index(CORNERS, Params.layout.copyrightCorner);
          this.setupAlignCombo.currentItem = index(SETUP_ALIGNMENTS, Params.layout.setupAlign);
-         this.fontEdit.text = Params.layout.fontName;
+         // a saved font that is no longer installed is kept in the list, so that the setting is not changed silently
+         let fontIndex = this.fontCombo.findItem(Params.layout.fontName, 0, true);
+         if (fontIndex < 0) {
+            this.fontCombo.insertItem(0, Params.layout.fontName);
+            fontIndex = 0;
+         }
+         this.fontCombo.currentItem = fontIndex;
          this.colorButton.text = "#" + (Params.layout.color & 0xFFFFFF).toString(16).toUpperCase().padStart(6, "0");
       }
 
@@ -1209,17 +1208,17 @@ class AnnotationDialog extends Dialog {
          this.preview.setScaledFixedSize(Math.max(80, Math.round(width)), Math.max(60, Math.round(height)));
       }
       this.refreshPreview = () => {
-         textWidthFactor(Params.layout.fontName);   // calibrated here, not inside the paint handler
          this.preview.repaint();
       }
 
       this.autoStfCheckBox = new CheckBox(this);
       this.autoStfCheckBox.text = "AutoSTF";
       this.autoStfCheckBox.checked = Params.autoStf;
-      this.autoStfCheckBox.toolTip = "Stretches the preview image automatically. Unchecked: the screen stretch of the image is used. " +
+      this.autoStfCheckBox.toolTip = "Stretches the preview image automatically when its median is below " + AUTOSTF_MAX_MEDIAN + " (an already stretched image is left as it is). Unchecked: the screen stretch of the image is used. " +
          "Only the preview is affected, never the image.";
       this.autoStfCheckBox.onCheck = (value) => {
          Params.autoStf = value;
+         Settings.write(SETTINGS_KEY_PREFIX + "autoStf", DataType_Boolean, value);   // written at once, so closing the dialog keeps it
          this.refreshPreview();
       }
 
@@ -1238,7 +1237,20 @@ class AnnotationDialog extends Dialog {
             if (scale < 1) {
                img.resample(scale);
             }
-            let stf = autoStf ? img.computeAutoStretch() : view.stf;
+            let useAutoStf = false;
+            if (autoStf) {
+               // mean of the channel medians, measured before any stretch
+               let sum = 0;
+               for (let c = 0; c < img.numberOfChannels; ++c) {
+                  img.selectedChannel = c;
+                  sum += img.median();
+               }
+               img.resetSelections();
+               let median = sum / img.numberOfChannels;
+               useAutoStf = median < AUTOSTF_MAX_MEDIAN;
+               Console.writeln("[preview] median " + median.toFixed(4) + (useAutoStf ? ": AutoSTF applied" : ": already stretched, AutoSTF skipped"));
+            }
+            let stf = useAutoStf ? img.computeAutoStretch() : view.stf;
             if (!isIdentityStf(stf)) {
                img.applyDisplayFunction(stf);
             }
@@ -1268,12 +1280,10 @@ class AnnotationDialog extends Dialog {
             let layout = computeLayout(buildLayoutSpec(view, Params.text, Params.setup, Params.copyrightText, Params.layout));
             g.textAntialiasing = true;
             g.pen = new Pen(Params.layout.color);
-            let factor = textWidthFactor(Params.layout.fontName);   // the Annotation process draws wider than Font predicts
             for (let item of layout.items) {
-               let font = new Font(Params.layout.fontName);
-               font.pixelSize = Math.max(1, Math.round(item.size * ANNOTATION_PX_PER_POINT * s * factor));
-               font.bold = true;
-               font.italic = item.italic;
+               // the pixel size of the text on the image, reduced to the preview scale
+               let font = makeFont(Params.layout.fontName, item.size, true, item.italic);
+               font.pixelSize = Math.max(1, Math.round(font.pixelSize * s));
                g.font = font;
                g.drawText(item.x * s, item.y * s + font.ascent, item.text);
             }
@@ -1288,7 +1298,7 @@ class AnnotationDialog extends Dialog {
       layoutControls.add(labelled("Setup corner:", this.setupCornerCombo, "Corner of the image where the setup block is printed."));
       layoutControls.add(labelled("Setup alignment:", this.setupAlignCombo, "Alignment of the lines inside the setup block."));
       layoutControls.add(labelled("Copyright corner:", this.copyrightCornerCombo, "Corner of the image where the copyright is printed."));
-      layoutControls.add(labelled("Font:", this.fontEdit, "Name of an installed font."));
+      layoutControls.add(labelled("Font:", this.fontCombo, "Installed font used for all the texts."));
       layoutControls.add(labelled("Colour:", this.colorButton, "Colour of all the texts."));
       let resetRow = new HorizontalSizer;
       resetRow.addStretch();

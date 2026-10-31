@@ -3,6 +3,7 @@
 ## 1.1.0 (unreleased)
 
 ### Added
+- The title is remembered per image (file of the image, else the view name) every time it changes, also when the dialog is closed with *Close* or the annotation fails; it is restored when the image is selected (last 200 images).
 - A shareable copy, `<name>.annotated.resample.png` written with *Save annotated copies* when the full-size PNG is larger than a size limit (default 15 MiB, editable and remembered; e.g. for WhatsApp, which accepts 16 MB). A copy of the image is reduced, with the annotation already on it, until the file fits; the original image is never changed. It is not written when the full-size PNG already fits, and it is deleted with a warning if the limit cannot be met at 25% of each side.
 - The preview shows the target image, with an *AutoSTF* checkbox (remembered) to stretch it automatically, only when the median of the image is below 0.2.
 - The font is chosen from a drop-down list of the installed Latin text fonts, without symbol fonts such as OpenSymbol, whose glyphs and metrics break the layout (it was a free text field).

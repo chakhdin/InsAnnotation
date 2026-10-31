@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (31/10/2026)
 
 ### Added
 - *Annotate a duplicate (keep the original untouched)* checkbox (remembered, off by default). The script creates a new window `<id>_annotated` (pixels, keywords, properties, astrometric solution and screen stretch copied), annotates it and leaves it open; the original image is not modified. The saved copies are still named after the file of the original image. Not used when the script runs as a process on a view.
+
+- An icon, `InsertAnnotation.svg`, shown in the Script menu (`#feature-icon`).
+
+### Changed
+- The script is called *Insert Annotation* everywhere (menu entry **Script > Render > Insert Annotation**, dialog title, messages). The files are renamed `InsertAnnotation.js`, `InsertAnnotationCore.jsh` and `InsertAnnotation.svg`: add the script again under **Script > Feature Scripts...** and remove the old entry. The settings keys still start with `InsAnnotation/`, so the saved settings, sites and titles are kept.
+- The title is written to the settings when the title box loses the focus (it was at every keystroke).
 
 ### Fixed
 - Selecting another image in the dialog no longer leaves the title of the previous image in the field: when the new image has no remembered title, the field is emptied (the OBJECT keyword or a cached SIMBAD result can then fill it).

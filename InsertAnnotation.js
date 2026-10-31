@@ -1,6 +1,7 @@
 #engine v8
-#feature-id Render > InsertAnnotation
-#feature-info Version 1.2.0. This script inserts a title, the setup details and the copyright, and optionally saves annotated copies (original format, PNG and a resampled PNG under a size limit). The setup details, the copyright, the layout and the imaging sites are remembered between runs and PixInsight launches.
+#feature-id Render > Insert Annotation
+#feature-icon InsertAnnotation.svg
+#feature-info Version 1.3.0. This script inserts a title, the setup details and the copyright, and optionally saves annotated copies (original format, PNG and a resampled PNG under a size limit). The setup details, the copyright, the layout and the imaging sites are remembered between runs and PixInsight launches.
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/TextAlign.jsh>
@@ -11,10 +12,10 @@
 #include <pjsr/controls/SimpleColorDialog.js>
 
 // the logic that needs no PixInsight object (layout, angles, plate solution maths, SIMBAD queries) is in this file
-#include "InsAnnotationCore.jsh"
+#include "InsertAnnotationCore.jsh"
 
-#define SCRIPT_VERSION "1.2.0"
-#define SCRIPT_TITLE "InsAnnotation"
+#define SCRIPT_VERSION "1.3.0"
+#define SCRIPT_TITLE "Insert Annotation"
 #define SETTINGS_KEY_PREFIX "InsAnnotation/"
 
 // name in the default copyright "© <year> <name>"; the copyright you enter is remembered between runs, so this is only the first-run default
@@ -79,7 +80,8 @@ function saveLocations() {
 }
 
 // The title is remembered per image (the file of the window, else the view id) in the settings, key InsAnnotation/titles
-// (JSON map image -> title), at every change, so that it survives Close, an error or a PixInsight restart.
+// (JSON map image -> title), when the title box loses the focus and when an object name is set, so that it survives Close, an error
+// or a PixInsight restart.
 function titleKey(view) {
    return view && !view.isNull ? (view.window.filePath || view.fullId) : "";
 }
@@ -947,8 +949,11 @@ class AnnotationDialog extends Dialog {
       this.titleEdit.onTextUpdated = (value) => {
          Params.text = value;
          this.titleEdited = true;
-         saveTitle(Params.targetView, value);
          this.refreshPreview();
+      }
+      // the title is written to the settings when the box loses the focus, not at every keystroke
+      this.titleEdit.onLoseFocus = () => {
+         saveTitle(Params.targetView, Params.text);
       }
       // the remembered title of the target image, if any, replaces the title and counts as typed by hand;
       // without one the field is emptied when the image is changed (clearIfNone), so the title of the previous image is not carried over
@@ -1656,8 +1661,8 @@ function main() {
             timed("saving all copies", () => saveAnnotatedCopies(target, sourcePath));
          }
       } catch (e) {
-         Console.criticalln("InsAnnotation failed: " + e.message);
-         showMessage("InsAnnotation failed:\n" + e.message, StdIcon_Error);
+         Console.criticalln("Insert Annotation failed: " + e.message);
+         showMessage("Insert Annotation failed:\n" + e.message, StdIcon_Error);
       }
    }
 }

@@ -1,4 +1,4 @@
-// Unit tests of InsAnnotationCore.jsh, run outside PixInsight:  node --test tests/
+// Unit tests of InsertAnnotationCore.jsh, run outside PixInsight:  node --test tests/
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -7,7 +7,7 @@ const vm = require("node:vm");
 
 // the .jsh declares only vars and functions, which become properties of the context object
 const ctx = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "InsAnnotationCore.jsh"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "InsertAnnotationCore.jsh"), "utf8"), ctx);
 const core = ctx;
 
 const near = (actual, expected, eps = 1e-6) => assert.ok(Math.abs(actual - expected) <= eps, `${actual} is not within ${eps} of ${expected}`);

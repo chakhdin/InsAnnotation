@@ -1,6 +1,6 @@
 # InsAnnotation
 
-A PixInsight script that puts a title, the imaging setup details and a copyright notice on an image, using the Annotation process, and optionally saves annotated XISF and PNG copies.
+Version 1.1.0. A PixInsight script that puts a title, the imaging setup details and a copyright notice on an image, using the Annotation process, and optionally saves annotated copies.
 
 ```
 NGC 1851                                              (top left)
@@ -10,14 +10,16 @@ NGC 1851                                              (top left)
                                         ZWO ASI2600MM Pro
                                         LRGB
                                         Total exposure: 7h
-© 2026 Your Name                        Example Site, Country   (bottom)
+© 2026 Your Name                        Example Site, Country      (bottom)
 ```
+
+By default:
 
 - **Title**: top left, upright bold.
 - **Setup details**: bottom right, one line per filled field, upright bold, smaller than the title. The lines share a left edge, the widest line ends at the right margin, and the last line sits on the copyright baseline.
 - **Copyright**: bottom left, italic bold.
 
-Sizes and positions scale with the image height.
+The corner of each text, the alignment of the setup lines, the font and the colour can be changed (see *Layout and appearance*). Sizes and positions scale with the image height.
 
 ## Requirements
 
@@ -30,27 +32,36 @@ Sizes and positions scale with the image height.
 2. In PixInsight: **Script > Feature Scripts... > Add**, select the folder containing `InsAnnotation.js`, then **Done**. The script appears under **Script > Render > InsertAnnotation**.
    Or run it once with **Script > Execute Script File...**
 
+`InsAnnotation.js` includes `InsAnnotationCore.jsh` from the same folder, so keep the two files together.
+
 ## Usage
 
 1. Select the target image in the first view list.
 2. Fill in or check the fields (below).
-3. **Apply** annotates the image. With *Save XISF and PNG annotated files* checked, it also saves `<name>.annotated.xisf` and `<name>.annotated.png` next to the original file.
+3. **Apply** annotates the image. With *Save annotated copies* checked, it also writes `<name>.annotated.<ext>` (same format as the original file) and `<name>.annotated.png` (16 bit) next to the original file. The copies are written without changing the file the window is bound to, and you are asked before an existing file is overwritten. An image that was never saved to disk is annotated but not saved.
 
-The new-instance icon stores the current values in a process instance.
+The image itself is annotated in place (use Undo to take the text off). The new-instance icon stores the current values in a process instance.
 
 ### Fields
 
 | Field | Notes |
 |---|---|
-| Title | Free text. Filled automatically when an object is found (see below), otherwise starts as ` on DD/MM/YYYY`. |
+| Title | Free text. Filled automatically when an object is found (see below), otherwise starts as ` on DD/MM/YYYY`, using `DATE-OBS` of the image when present, else today. |
 | Telescope, Mount, Camera | Printed as typed. |
 | Filters (if any) | Printed as typed. |
 | Exposure per filter | Free text, for example `L 40x300 s, R 20x300 s`. |
 | Total exposure | Printed as `Total exposure: <value>`. |
-| Location(s) | A dropdown of known sites plus **Custom**. The edit box is enabled only for Custom. |
+| Location(s) | A dropdown of your saved sites plus **Custom**. The edit box is enabled only for Custom. **Save as site** stores the typed name with the coordinates of the last header read; **Edit sites...** opens the site editor (see below). |
 | Copyright | Defaults to `© <current year> <name>`. |
 
-Empty fields are skipped. Setup details, copyright and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is per image and is not remembered.
+Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is per image and is not remembered.
+
+### Layout and appearance
+
+The **Layout and appearance** group sets the corner of the title, of the setup block and of the copyright, the alignment of the lines inside the setup block (left or right), the font (any installed font name) and the colour. A preview on the shape of the target image shows where the texts will go and updates as you type. **Reset layout** restores the defaults.
+
+- Texts that share a corner are stacked from the edge of the image inwards.
+- When the texts on the left and right corners of the same edge are too wide to fit side by side, the widest one is made smaller, down to 8 pt. If they still do not fit, a warning is written to the Process Console.
 
 ### Filling the setup from FITS keywords
 
@@ -59,31 +70,53 @@ Final XISF images often have no equipment keywords. The buttons under the setup 
 - **Fill from view**: any image open in PixInsight, chosen in the list next to the button.
 - **Fill from file...**: any FITS or XISF file, for example a light frame or a master.
 
-Keywords used: `TELESCOP` (telescope), `INSTRUME` (camera), `FILTER` (filters) and the site coordinates `SITELAT`/`SITELONG` (also `LAT-OBS`/`LONG-OBS` and `OBSGEO-B`/`OBSGEO-L`), matched to the nearest site in the `LOCATIONS` table. Only the fields found are overwritten. Mount and exposure times are never filled automatically.
+Keywords used: `TELESCOP` (telescope), `INSTRUME` (camera), `FILTER` (filters) and the site coordinates `SITELAT`/`SITELONG` (also `LAT-OBS`/`LONG-OBS` and `OBSGEO-B`/`OBSGEO-L`), matched to the nearest saved site within its match radius. When a keyword is missing, the XISF properties `Instrument:Telescope:Name`, `Instrument:Camera:Name`, `Instrument:Filter:Name` and `Observation:Location:Latitude`/`Longitude` (degrees, north and east positive) are used instead; the coordinates are taken as a pair from the same source. Mount and exposure times are never filled automatically.
+
+Only the fields found are overwritten. If a field already holds a different value you typed, you are asked: replace it, keep it and fill only the other fields, or change nothing.
+
+#### Saved sites
+
+Sites are not part of the source: they are stored in the PixInsight settings (key `InsAnnotation/locations`, a JSON list of `name`, `lat`, `lon`, `radiusKm`), so they stay private and survive script updates.
+
+- **Save as site**: **Fill from view/file...** on an image whose header has `SITELAT`/`SITELONG`, choose **Custom**, type the site name, click **Save as site**. A site saved this way gets a 1 km match radius.
+- **Edit sites...** opens the site editor: a list of the saved sites with name, latitude and longitude (decimal degrees, N and E positive) and match radius. Select a site to edit it and press **Update**, fill the fields and press **Add** for a new one, or **Remove**. **Use header position** copies the coordinates read by the last *Fill from view / file*. Names must be unique. Changes are stored when the editor is closed with **OK**.
 
 ### Object lookup
 
 When the dialog opens, when the target view changes and when you click **Find object**:
 
 1. The `OBJECT` keyword of the image header, if present, is the first candidate.
-2. If the image is plate-solved, SIMBAD is queried for named objects inside the field. The solution is read from the XISF `AstrometricSolution:*` properties, or from WCS keywords (`CRVAL`, `CRPIX`, `CD`/`CDELT`). Only the sky position and radius are sent. Candidates are limited to objects of 1 arcmin up to 120% of the field diameter from the NGC, IC, Messier, LDN, LBN, Sharpless, vdB, Barnard, Collinder, Melotte and Abell catalogues, plus objects with a common name.
+2. If the image is plate-solved, SIMBAD is queried for named objects inside the field. The solution is read from WCS keywords (`CRVAL`, `CRPIX`, `CD`/`CDELT`), or else from the XISF `AstrometricSolution:*` properties (reference point, reference pixel and linear transformation matrix). Only the sky position and radius are sent. Two queries are made:
+   - Objects of 1 arcmin up to 120% of the field diameter from the NGC, IC, Messier, LDN, LBN, Sharpless, vdB, Barnard, Collinder, Melotte and Abell catalogues, plus objects with a common name, biggest first.
+   - Objects of the same catalogues for which SIMBAD has no size (the first query cannot return them), most referenced first, at most 10. If SIMBAD refuses the ordering by number of references, the query is repeated without it.
 3. The dropdown lists the `OBJECT` value first, then the SIMBAD names alphabetically.
 
-The title is set to the `OBJECT` value, or else to the largest SIMBAD object. A title you have edited by hand is not replaced. An unsolved image, no network or no match simply leaves the title alone.
+The title is set to the `OBJECT` value, or else to the largest SIMBAD object. A title you have edited by hand is not replaced. An unsolved image, no network or no match leaves the title alone; a line under the title says what happened.
 
-Each step is logged to the Process Console with the prefix `[lookup]`.
+The lookup starts after the dialog is on screen. The interface is repainted while SIMBAD answers (input is ignored meanwhile), each request is aborted after 20 s, and the result is remembered per image until the dialog closes; **Find object** asks again.
+
+The Process Console shows a one-line summary of each lookup. To log every step, set `VERBOSE_LOOKUP` to `true` at the top of `InsAnnotation.js`.
 
 ## Customising
 
-All at the top of `InsAnnotation.js`:
+At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `VERBOSE_LOOKUP`.
 
-- `LOCATIONS`: known sites (name, latitude, longitude in decimal degrees, match radius in km). They feed both the dropdown and the coordinate matching.
-- `SETUP_FIELDS`: the setup fields, in drawing order.
+In `InsAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_PITCH`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
 
-The default copyright name, the font (`Palatino Linotype`) and the sizes are in `insertCopyright` and in the dialog constructor.
+## Tests
+
+The logic that needs no PixInsight object (angles, sites, plate solution maths, SIMBAD queries, layout) is in `InsAnnotationCore.jsh` and is tested with node, outside PixInsight:
+
+```
+node --test tests/core.test.js
+```
 
 ## Notes and limitations
 
-- Text placement assumes the Annotation process takes the font size in points and the position as the text's top-left corner. If lines look misaligned on your system, adjust the width and baseline calculations in `insertCopyright`.
+- Text widths are measured with a pixel-sized font at 96 dpi (`ANNOTATION_PX_PER_POINT` in `InsAnnotationCore.jsh`), not with a point size, so they do not depend on the display scaling. The layout assumes the Annotation process takes the font size in points and the position as the text's top-left corner. If lines look misaligned on your system, adjust `ANNOTATION_PX_PER_POINT` and `BASELINE_SHIFT`.
+- The preview uses the same layout code as the annotation, with the installed font drawn at a reduced size; it is a guide, not a pixel-exact rendering.
 - Nicknames such as "The Giraffe Nebula" are not in SIMBAD. The lookup returns catalogue names, for example `LDN 1295`.
-- The lookup is blocking: the dialog waits for SIMBAD (up to about 30 s) before it appears.
+
+## Licence
+
+MIT, see `LICENSE`. Changes are listed in `CHANGELOG.md`.

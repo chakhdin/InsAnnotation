@@ -5,6 +5,9 @@
 ### Added
 - *Annotate a duplicate (keep the original untouched)* checkbox (remembered, off by default). The script creates a new window `<id>_annotated` (pixels, keywords, properties, astrometric solution and screen stretch copied), annotates it and leaves it open; the original image is not modified. The saved copies are still named after the file of the original image. Not used when the script runs as a process on a view.
 
+### Fixed
+- Selecting another image in the dialog no longer leaves the title of the previous image in the field: when the new image has no remembered title, the field is emptied (the OBJECT keyword or a cached SIMBAD result can then fill it).
+
 ## 1.2.0 (31/10/2026)
 
 ### Added

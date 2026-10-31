@@ -38,7 +38,7 @@ The corner of each text, the alignment of the setup lines, the font and the colo
 
 1. Select the target image in the first view list.
 2. Fill in or check the fields (below).
-3. **Apply** annotates the image. With *Save annotated copies* checked, it also writes `<name>.annotated.<ext>` (same format as the original file) and `<name>.annotated.png` (16 bit) next to the original file. The copies are written without changing the file the window is bound to, and you are asked before an existing file is overwritten. An image that was never saved to disk is annotated but not saved.
+3. **Apply** annotates the image. With *Save annotated copies* checked, it also writes `<name>.annotated.<ext>` (same format as the original file) and `<name>.annotated.png` (8 bit, full size) next to the original file. If that PNG is larger than the *Resampled PNG size limit* (15 MiB by default; WhatsApp accepts 16 MB), it also writes `<name>.annotated.resample.png`: a copy of the image reduced in size until the file is under the limit. The file serves for sharing and for a web page. The annotation is already on the pixels, so its text shrinks with the image. The original image is never changed. The copies are written without changing the file the window is bound to, and you are asked before an existing file is overwritten. An image that was never saved to disk is annotated but not saved.
 
 The image itself is annotated in place (use Undo to take the text off). The new-instance icon stores the current values in a process instance.
 
@@ -54,7 +54,7 @@ The image itself is annotated in place (use Undo to take the text off). The new-
 | Location(s) | A dropdown of your saved sites plus **Custom**. The edit box is enabled only for Custom. **Save as site** stores the typed name with the coordinates of the last header read; **Edit sites...** opens the site editor (see below). |
 | Copyright | Defaults to `© <current year> <name>`. |
 
-Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is per image and is not remembered.
+Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice and the save-files option are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is remembered per image (by the file of the image, else by the view name), as soon as it changes, so it is still there after *Close*, an error or a restart; the last 200 images are kept. A remembered title is treated as typed by hand and is not replaced by the object lookup until you press *Find object*.
 
 ### Layout and appearance
 

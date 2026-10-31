@@ -357,3 +357,41 @@ function computeLayout(spec) {
    });
    return { items: items, warnings: warnings, fontSize: fontSize };
 }
+
+// ---- Shareable (resampled) PNG: size-limited copy -------------------------------------------------------------------------
+
+// factor below which the search for a file under the size limit is abandoned (each side of the image)
+var SHARE_MIN_FACTOR = 0.25;
+
+// true if the shareable copy is needed: the full-size PNG is not already under the limit
+function shareCopyNeeded(fullPngBytes, limitBytes) {
+   return !(fullPngBytes > 0 && fullPngBytes <= limitBytes);
+}
+
+// scale factor (both dimensions) of the next attempt; null = give up.
+// previous = factor of the file measured (1 for the full-size PNG), bytes = its size. PNG size grows about with the pixel count, hence the square root;
+// the 0.95 margin guarantees progress (each step is at most 0.95 of the previous factor) even when the estimate is optimistic.
+function nextShareFactor(previous, bytes, limitBytes) {
+   if (!(bytes > limitBytes)) {
+      return null;
+   }
+   var next = previous * Math.sqrt(limitBytes / bytes) * 0.95;
+   return next < SHARE_MIN_FACTOR ? null : next;
+}
+
+// ---- Titles remembered per image --------------------------------------------------------------------------------------------
+
+// maximum number of images whose title is remembered; the oldest ones are forgotten first
+var TITLES_MAX = 200;
+
+// returns a copy of the map { imageKey: title } with the title of imageKey set (most recent last), or removed if the title is empty
+function updateTitleMap(map, key, title, max) {
+   var out = {};
+   var keys = Object.keys(map || {}).filter(function(k) { return k != key && typeof map[k] == "string"; });
+   if (title) {
+      keys.push(key);
+   }
+   keys = keys.slice(Math.max(0, keys.length - (max || TITLES_MAX)));
+   keys.forEach(function(k) { out[k] = k == key ? title : map[k]; });
+   return out;
+}

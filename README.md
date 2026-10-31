@@ -1,6 +1,6 @@
-# InsAnnotation
+# Insert Annotation
 
-Version 1.2.0. A PixInsight script that puts a title, the imaging setup details and a copyright notice on an image, using the Annotation process, and optionally saves annotated copies.
+Version 1.3.0. A PixInsight script that puts a title, the imaging setup details and a copyright notice on an image, using the Annotation process, and optionally saves annotated copies.
 
 ```
 NGC 1851                                              (top left)
@@ -29,10 +29,10 @@ The corner of each text, the alignment of the setup lines, the font and the colo
 ## Installation
 
 1. Clone or download this repository.
-2. In PixInsight: **Script > Feature Scripts... > Add**, select the folder containing `InsAnnotation.js`, then **Done**. The script appears under **Script > Render > InsertAnnotation**.
+2. In PixInsight: **Script > Feature Scripts... > Add**, select the folder containing `InsertAnnotation.js`, then **Done**. The script appears under **Script > Render > Insert Annotation**, with the icon `InsertAnnotation.svg` (keep it in the same folder as the script).
    Or run it once with **Script > Execute Script File...**
 
-`InsAnnotation.js` includes `InsAnnotationCore.jsh` from the same folder, so keep the two files together.
+`InsertAnnotation.js` includes `InsertAnnotationCore.jsh` from the same folder, so keep the two files together.
 
 ## Usage
 
@@ -54,7 +54,7 @@ The image itself is annotated in place (use Undo to take the text off). The new-
 | Location(s) | A dropdown of your saved sites plus **Custom**. The edit box is enabled only for Custom. **Save as site** stores the typed name with the coordinates of the last header read; **Edit sites...** opens the site editor (see below). |
 | Copyright | Defaults to `© <current year> <name>`. |
 
-Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice, the save-files option, the duplicate option and the resampled PNG size limit are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is remembered per image (by the file of the image, else by the view name), as soon as it changes, so it is still there after *Close*, an error or a restart; the last 200 images are kept. A remembered title is treated as typed by hand and is not replaced by the object lookup until you press *Find object*. When you select an image that has no remembered title, the title field is emptied instead of keeping the title of the previous image.
+Empty fields are skipped. Every field has a tooltip. Setup details, copyright, layout and appearance, the AutoSTF choice, the save-files option, the duplicate option and the resampled PNG size limit are remembered between runs and between PixInsight launches (PixInsight settings, keys under `InsAnnotation/`). The title is remembered per image (by the file of the image, else by the view name), when the title box loses the focus (click elsewhere or press Tab), so it is still there after *Close*, an error or a restart; the last 200 images are kept. A remembered title is treated as typed by hand and is not replaced by the object lookup until you press *Find object*. When you select an image that has no remembered title, the title field is emptied instead of keeping the title of the previous image.
 
 ### Layout and appearance
 
@@ -99,17 +99,17 @@ The interface is repainted while SIMBAD answers (input is ignored meanwhile). A 
 
 Two SIMBAD servers are used: the Harvard mirror (`simbad.cfa.harvard.edu`) and the main server in Strasbourg (`simbad.cds.unistra.fr`). If the first one cannot be reached, the other is tried. The server that answered is tried first from then on, also in the next runs (PixInsight setting `InsAnnotation/simbadServer`).
 
-The Process Console shows a one-line summary of each lookup. To log every step, set `VERBOSE_LOOKUP` to `true` at the top of `InsAnnotation.js`.
+The Process Console shows a one-line summary of each lookup. To log every step, set `VERBOSE_LOOKUP` to `true` at the top of `InsertAnnotation.js`.
 
 ## Customising
 
-At the top of `InsAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `SIMBAD_URLS` (the servers, in the order they are tried), `PREVIEW_BITMAP_PX`, `VERBOSE_LOOKUP`, `SHARE_DEBUG` (`true` logs every attempt and the time of each saving step for the resampled PNG).
+At the top of `InsertAnnotation.js`: `DEFAULT_AUTHOR` (first-run copyright name), `LOOKUP_TIMEOUT_S`, `SIMBAD_URLS` (the servers, in the order they are tried), `PREVIEW_BITMAP_PX`, `VERBOSE_LOOKUP`, `SHARE_DEBUG` (`true` logs every attempt and the time of each saving step for the resampled PNG).
 
-In `InsAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_SPACING`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
+In `InsertAnnotationCore.jsh`: `SETUP_FIELDS` (the setup fields, in drawing order), `LAYOUT_DEFAULTS`, and the sizing constants of the layout (`REFERENCE_HEIGHT`, `LINE_SPACING`, `SETUP_SIZE_RATIO`, `MIN_FONT_SIZE`, ...).
 
 ## Tests
 
-The logic that needs no PixInsight object (angles, sites, plate solution maths, SIMBAD queries, layout) is in `InsAnnotationCore.jsh` and is tested with node, outside PixInsight:
+The logic that needs no PixInsight object (angles, sites, plate solution maths, SIMBAD queries, layout) is in `InsertAnnotationCore.jsh` and is tested with node, outside PixInsight:
 
 ```
 node --test tests/core.test.js
@@ -117,7 +117,7 @@ node --test tests/core.test.js
 
 ## Notes and limitations
 
-- The Annotation process takes the font size in points and draws it through the PixInsight display settings (*Core UI Resources*: UI scaling factor and font resolution). With a UI scaling factor of 1.25 and 100 dpi, a size is about 1.30 times larger in pixels than at 1.00 and 96 dpi. A font created with the same point size follows the same settings, so the script measures the width, the ascent and the descent of the texts with such a font. There is no calibration and nothing to configure; these settings cannot be read by a script directly. The position is the top-left corner of the text. The line distance is the font height times `LINE_SPACING` (`InsAnnotationCore.jsh`), and texts at the bottom of the image share a baseline. Measured with Palatino Linotype and Arial at 24 pt, 1.25 and 100 dpi: the font width matches the rendered ink width to within 1% (Palatino) and 3% (Arial, ink is narrower than the advance width).
+- The Annotation process takes the font size in points and draws it through the PixInsight display settings (*Core UI Resources*: UI scaling factor and font resolution). With a UI scaling factor of 1.25 and 100 dpi, a size is about 1.30 times larger in pixels than at 1.00 and 96 dpi. A font created with the same point size follows the same settings, so the script measures the width, the ascent and the descent of the texts with such a font. There is no calibration and nothing to configure; these settings cannot be read by a script directly. The position is the top-left corner of the text. The line distance is the font height times `LINE_SPACING` (`InsertAnnotationCore.jsh`), and texts at the bottom of the image share a baseline. Measured with Palatino Linotype and Arial at 24 pt, 1.25 and 100 dpi: the font width matches the rendered ink width to within 1% (Palatino) and 3% (Arial, ink is narrower than the advance width).
 - Symbol fonts (for example OpenSymbol) draw some letters with a fallback font whose size differs from the metrics of the chosen font, so the lines can be misplaced or cut. They are not offered in the font list; a symbol font saved by an earlier version stays selected until you choose another font.
 - A font without a real italic face (for example Mongolian Baiti) is drawn by the Annotation process as a synthesized italic that is clipped at about half of its width, so with such a font the copyright is printed upright.
 - Before each annotation the Process Console shows a `[layout]` report: the font, whether PixInsight found an exact match, the display pixel ratio (the UI scaling factor), the image size, and for each text its size (pt and px), width, ascent, descent and position. Use it to diagnose texts that are clipped or misplaced. The font resolution (dpi) cannot be read by a script and is not shown.

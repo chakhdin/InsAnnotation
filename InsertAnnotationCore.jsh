@@ -1,5 +1,5 @@
-// InsAnnotationCore.jsh - the logic of InsAnnotation that needs no PixInsight object (no view, no dialog, no Console).
-// It is included by InsAnnotation.js and loaded as is by the unit tests in tests/ (node --test tests/).
+// InsertAnnotationCore.jsh - the logic of Insert Annotation that needs no PixInsight object (no view, no dialog, no Console).
+// It is included by InsertAnnotation.js and loaded as is by the unit tests in tests/ (node --test tests/).
 // Keep it to top-level `var` and `function` declarations: the tests read them from a node vm context.
 
 // ---------------------------------------------------------------------------------------------------------------------
